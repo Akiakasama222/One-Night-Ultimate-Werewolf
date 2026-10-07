@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>One Night Werewolf</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,800&family=Karla:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0d1122;--panel:#161b36;--ink:#ece6d6;--mute:#9094b0;--moon:#f2d98d;--blood:#c8323c;--line:#2c3260}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;color:var(--ink);font:16px/1.5 Karla,system-ui,sans-serif;background:radial-gradient(circle at 85% -5%,#2a3568 0,var(--bg) 52%) fixed}
+main{max-width:520px;margin:0 auto;padding:16px 14px 50px;display:flex;flex-direction:column;gap:12px}
+main.wide{max-width:760px}
+h1,h2{font-family:Fraunces,Georgia,serif;margin:0}
+h1{font-size:40px;font-weight:800}
+h2{font-size:22px;font-weight:600}
+.mute{color:var(--mute)}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px}
+input,button,select{font:inherit;color:var(--ink);background:#222a52;border:1px solid var(--line);border-radius:10px;padding:10px 14px}
+input{width:100%}
+button{font-weight:700;cursor:pointer}
+button.primary{background:var(--moon);color:#1a1630;border-color:var(--moon)}
+button:disabled,input:disabled{opacity:.4;cursor:not-allowed}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--moon);outline-offset:2px}
+label{display:block;margin:8px 0}
+.code{font:800 60px Fraunces,serif;letter-spacing:.14em;color:var(--moon)}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.chips span{background:#1d2347;border:1px solid var(--line);border-radius:20px;padding:3px 14px}
+#phase{font:600 21px Fraunces,serif;text-align:center}
+#cd{color:var(--moon);font-weight:700;text-align:center;min-height:1.4em}
+.log{height:34vh;min-height:160px;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px;display:grid;gap:6px;align-content:start}
+.log div{background:#1d2347;border-left:3px solid var(--moon);border-radius:8px;padding:5px 10px;word-break:break-word}
+.log .priv{border-left-color:var(--blood);font-style:italic}
+#cf{display:flex;gap:8px}
+.card{width:170px;height:240px;margin:6px auto;border-radius:16px;display:grid;place-items:center;text-align:center;transition:background .4s}
+.card.down{background:repeating-linear-gradient(45deg,#232b5c 0 10px,#1b2150 10px 20px);border:3px solid var(--moon)}
+.card.up{background:#efe6cf;color:#1a1630;border:3px solid var(--moon)}
+.card .ic{font-size:70px;display:block}
+.card b{font:800 24px Fraunces,serif}
+.moon{width:56px;height:56px;border-radius:50%;background:var(--moon);box-shadow:inset -16px 0 0 #232b5c}
+#act{display:grid;gap:8px;text-align:center}
+.grid{display:grid;gap:8px;text-align:left}
+.row{background:#1d2347;border:1px solid var(--line);border-radius:10px;padding:8px 12px}
+.row.dead{border-color:var(--blood)}
+.big{font:800 34px Fraunces,serif}
+@media (prefers-reduced-motion:reduce){.card{transition:none}}
+</style>
+</head>
+<body>
+<main id="m"></main>
+<script>
+const ROLES={Werewolf:['🐺','Wolf team. Find your fellow wolf. A lone wolf may peek at a center card.'],Minion:['🎭','Wolf team. You know the wolves; they don\'t know you.'],Seer:['🔮','Village. Look at one player\'s card, or two center cards.'],Robber:['🗡️','Village. Swap with another player and see your new card.'],Troublemaker:['🌀','Village. Swap two other players\' cards.'],Drunk:['🍺','Village. Swap with a center card without looking.'],Insomniac:['🌙','Village. Check your card at the end of the night.'],Hunter:['🏹','Village. If you die, whoever you voted for dies too.'],Tanner:['🪢','You win only if you die.'],Villager:['🏡','Village. No power. Use your wits.']};
+const $=s=>document.querySelector(s), m=$('#m');
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let uid;try{uid=localStorage.getItem('wwuid')}catch(e){}
+if(!uid){uid='u'+Math.random().toString(36).slice(2,10);try{localStorage.setItem('wwuid',uid)}catch(e){}}
+let ROOM='',isHost=false,pin='',name='',V=null,skew=0,tmA=null,sig='',logSig='',dur=5,timer=null;
+const store=(k,v)=>{try{v===undefined?localStorage.getItem(k):localStorage.setItem(k,v)}catch(e){}};
+const load=k=>{try{return localStorage.getItem(k)}catch(e){return null}};
+
+async function api(method,body){
+  const r=await fetch(method==='GET'?`/api/werewolf?room=${ROOM}&uid=${uid}`:'/api/werewolf',method==='GET'?{cache:'no-store'}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uid,room:ROOM,pin,...body})});
+  const j=await r.json().catch(()=>({error:'Server error '+r.status}));
+  if(!r.ok)throw new Error(j.error||'Error '+r.status);return j;
+}
+const err=t=>{const e=$('#err');if(e)e.textContent=t||''};
+
+function landing(){
+  m.className='';clearInterval(timer);
+  m.innerHTML=`<h1>One Night Werewolf</h1><p class="mute">Everyone gets a secret role. One night, one vote.</p>
+  <div class="panel"><h2>Host a game</h2><p class="mute">You run the game on a shared screen. You don't get a card.</p>
+  <label>Referee PIN (optional)<input id="pin" maxlength="8" inputmode="numeric"></label><button class="primary" id="mk">Create a room</button></div>
+  <div class="panel"><h2>Join a game</h2><label>Your name<input id="nm" maxlength="14" autocomplete="nickname"></label>
+  <label>Room code<input id="rc" maxlength="4" style="text-transform:uppercase" autocomplete="off"></label><button class="primary" id="jn">Join</button></div><p id="err" class="mute"></p>`;
+  $('#nm').value=load('wwName')||'';
+  $('#rc').value=(new URLSearchParams(location.search).get('room')||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  $('#mk').onclick=async()=>{try{pin=$('#pin').value;const j=await api('POST',{action:'create',pin});ROOM=j.room;store('wwHost_'+ROOM,pin);enter(true)}catch(e){err(e.message)}};
+  $('#jn').onclick=async()=>{
+    name=$('#nm').value.trim();ROOM=$('#rc').value.trim().toUpperCase();
+    if(!name||ROOM.length!==4)return err('Enter your name and the 4-letter room code.');
+    store('wwName',name);try{await api('POST',{action:'join',name});enter(false)}catch(e){err(e.message)}};
+}
+function enter(host){
+  isHost=host;history.replaceState(null,'','?room='+ROOM);sig=logSig='';V=null;
+  host?buildHost():buildPlayer();poll();clearInterval(timer);timer=setInterval(poll,1500);setInterval(tick,500);
+}
+async function poll(){
+  try{const j=await api('GET');skew=j.now-Date.now();V=j;err('');render()}
+  catch(e){if(/not found/i.test(e.message)){alert('This room has expired or does not exist.');location.href='/'}else err('⚠️ '+e.message)}
+}
+function tick(){
+  const el=$('#cd');if(!el||!V)return;
+  const end=V.phase==='day'?V.deadline:V.phase==='vote'?V.voteBy:0;
+  if(!end){el.textContent='';return}
+  const s=Math.max(0,Math.round((end-(Date.now()+skew))/1000));el.textContent=`${s/60|0}:${String(s%60).padStart(2,'0')}`;
+}
+const phaseText=()=>({lobby:'Waiting for the host to start',deal:'Look at your card',night:`Night: the ${V.step} wakes…`,day:'Day: talk about the night!',vote:'Vote!',end:'Results'}[V.phase]);
+const logHtml=()=>{
+  const priv=(V.me?[`Your starting role: ${V.me.orig}. ${ROLES[V.me.orig][1]}`,...V.me.priv]:[]).map(t=>`<div class="priv">${esc(t)}</div>`);
+  return priv.join('')+V.chat.map(c=>`<div><b>${esc(c.from)}:</b> ${esc(c.text)}</div>`).join('');
+};
+function post(body){return api('POST',body).then(j=>{Object.assign(V,j);render()}).catch(e=>err('⚠️ '+e.message))}
+
+/* ---------- HOST ---------- */
+function buildHost(){
+  m.className='wide';
+  m.innerHTML=`<h1>One Night Werewolf</h1><div class="panel" id="h"></div><p id="err" class="mute"></p>`;
+  const sv=load('wwHost_'+ROOM);if(sv!==null)pin=sv;
+}
+function renderHost(){
+  const s=JSON.stringify([V.phase,V.step,V.players,V.chat,V.result,dur]);if(s===sig)return;sig=s;
+  const link=location.origin+'/?room='+ROOM, n=V.players.length;
+  let h='';
+  if(V.phase==='lobby'||V.phase==='end'){
+    if(V.phase==='end')h+=`<h2>Results</h2><p>${esc(V.result.text)}</p><div class="grid">${V.result.rows.map(r=>`<div class="row ${r.dead?'dead':''}"><b>${esc(r.name)}</b>: ${ROLES[r.orig][0]} ${r.orig} → ${ROLES[r.role][0]} ${r.role}<br><span class="mute">${r.votes} votes · voted ${esc(r.voted)}</span></div>`).join('')}<div class="row"><b>Center</b>: ${V.result.center.map(c=>ROLES[c][0]+' '+c).join(', ')}</div></div><hr style="border-color:#2c3260;margin:16px 0">`;
+    h+=`<p class="mute">Room code</p><div class="code">${ROOM}</div><p>Friends open <b>${esc(link)}</b> and enter the code.</p>
+    <h2>Players (${n}/10)</h2><div class="chips">${V.players.map(p=>`<span>${esc(p.name)}</span>`).join('')||'<span class="mute">Waiting for players…</span>'}</div>
+    <p>Discussion time <select id="d">${[3,5,8,10].map(x=>`<option value="${x}" ${x===dur?'selected':''}>${x} min</option>`).join('')}</select></p>
+    <button class="primary" id="go" ${n<3?'disabled':''}>${V.phase==='end'?'Play again':'Start game'}${n<3?' (need 3+ players)':''}</button>`;
+  }else{
+    const c=V.phase==='deal'?`${V.players.filter(p=>p.ready).length}/${n} players have hidden their card.`:V.phase==='vote'?`${V.players.filter(p=>p.voted).length}/${n} votes in.`:V.phase==='night'?'Everyone keeps their eyes closed.':'';
+    h+=`<h2>${esc(phaseText())}</h2><div class="big" id="cd"></div><p class="mute">${c}</p>`;
+    if(V.phase==='day'||V.phase==='vote')h+=`<div class="log">${V.chat.map(x=>`<div><b>${esc(x.from)}:</b> ${esc(x.text)}</div>`).join('')||'<span class="mute">No messages yet.</span>'}</div>`;
+    if(V.phase==='day')h+=`<button class="primary" id="sk">Start the vote now</button>`;
+  }
+  $('#h').innerHTML=h;
+  if($('#d'))$('#d').onchange=e=>{dur=+e.target.value;sig=''};
+  if($('#go'))$('#go').onclick=()=>post({action:'start',dur});
+  if($('#sk'))$('#sk').onclick=()=>post({action:'skip'});
+}
+
+/* ---------- PLAYER ---------- */
+function buildPlayer(){
+  m.className='';
+  m.innerHTML=`<div id="phase">…</div><div id="cd"></div><div class="log" id="log" aria-live="polite"></div>
+  <form id="cf"><input id="ci" maxlength="200" disabled><button id="cb" disabled>Send</button></form>
+  <div id="card" class="card down"></div><div id="act"></div><p id="err" class="mute"></p>`;
+  $('#cf').onsubmit=e=>{e.preventDefault();const t=$('#ci').value.trim();if(t){$('#ci').value='';api('POST',{action:'say',text:t}).then(poll).catch(x=>err(x.message))}};
+}
+function askOpts(k){
+  const o=k.others.map((l,i)=>({l,i})),c=[1,2,3].map(i=>({l:'Center '+i,i:i-1}));
+  if(k.role==='Werewolf'||k.role==='Drunk')return c;
+  if(k.role==='Seer')return[...o,{l:'Two center cards',i:o.length}];
+  if(k.role==='Robber')return[...o,{l:'Keep my card',i:o.length}];
+  return tmA===null?o:o.filter(x=>x.i!==tmA);
+}
+function renderPlayer(){
+  const me=V.me,ph=V.phase;
+  $('#phase').textContent=me||ph==='lobby'?phaseText():'This game already started';
+  const chatOn=!!me&&['day','vote','end'].includes(ph);
+  $('#ci').disabled=$('#cb').disabled=!chatOn;$('#ci').placeholder=chatOn?'Say what you did or saw…':'Chat opens in the morning';
+  const ls=JSON.stringify([me&&me.priv,V.chat,me&&me.orig]);if(ls!==logSig){logSig=ls;const l=$('#log');l.innerHTML=logHtml();l.scrollTop=1e9}
+  const up=me&&((ph==='deal'&&!me.ready)||ph==='end');
+  const shown=me&&(ph==='end'?me.final:me.orig);
+  $('#card').className='card '+(up?'up':'down');
+  $('#card').innerHTML=up&&shown?`<div><span class="ic">${ROLES[shown][0]}</span><b>${shown}</b></div>`:'<span class="moon"></span>';
+  const s=JSON.stringify([ph,me&&me.ready,me&&me.voted,V.ask,V.others,tmA,V.players.length,V.result&&1]);if(s===sig)return;sig=s;
+  let h='';
+  if(!me&&ph!=='lobby')h='<p class="mute">Wait for the host to start the next game.</p>';
+  else if(ph==='lobby')h=`<p class="mute">Players: ${V.players.map(p=>esc(p.name)).join(', ')}</p>`;
+  else if(ph==='deal')h=me.ready?'<p class="mute">Card hidden. Waiting for the others…</p>':`<p>${esc(ROLES[me.orig][1])}</p><button class="primary" id="hide">Hide my card</button>`;
+  else if(ph==='night'&&V.ask)h=`<h2>${V.ask.role}</h2><p class="mute">${V.ask.role==='Troublemaker'?(tmA===null?'Pick the first player to swap.':'Swap '+esc(V.ask.others[tmA])+' with…'):'Make your choice.'}</p>`+askOpts(V.ask).map(o=>`<button data-i="${o.i}">${esc(o.l)}</button>`).join('');
+  else if(ph==='night')h='<p class="mute">Eyes closed. Wait for morning.</p>';
+  else if(ph==='day')h='<p class="mute">Talk it out in the chat.</p>';
+  else if(ph==='vote')h=me.voted?'<p class="mute">Vote cast. Waiting for the others…</p>':'<h2>Who do you vote to kill?</h2>'+V.others.map((n,i)=>`<button data-i="${i}">${esc(n)}</button>`).join('');
+  else if(ph==='end'){const r=V.result;h=`<div class="big">${me.win?'You win':'You lose'}</div><p>${esc(r.text)}</p><div class="grid">${r.rows.map(x=>`<div class="row ${x.dead?'dead':''}"><b>${esc(x.name)}</b>: ${ROLES[x.orig][0]} ${x.orig} → ${ROLES[x.role][0]} ${x.role}<br><span class="mute">${x.votes} votes · voted ${esc(x.voted)}</span></div>`).join('')}<div class="row"><b>Center</b>: ${r.center.map(c=>ROLES[c][0]+' '+c).join(', ')}</div></div><p class="mute">The host can start another round.</p>`}
+  $('#act').innerHTML=h;
+  if($('#hide'))$('#hide').onclick=()=>post({action:'ready'});
+  $('#act').querySelectorAll('button[data-i]').forEach(b=>b.onclick=()=>{
+    const i=+b.dataset.i;
+    if(ph==='vote')return post({action:'vote',a:i});
+    if(V.ask.role==='Troublemaker'&&tmA===null){tmA=i;sig='';return renderPlayer()}
+    const body={action:'act',a:tmA===null?i:tmA,b:tmA===null?undefined:i};tmA=null;post(body);
+  });
+}
+function render(){isHost?renderHost():renderPlayer()}
+
+/* auto-reconnect after a refresh */
+(function(){
+  const q=(new URLSearchParams(location.search).get('room')||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  if(q.length===4){const sv=load('wwHost_'+q);if(sv!==null){ROOM=q;pin=sv;return enter(true)}
+    const nm=load('wwName');if(nm){ROOM=q;name=nm;
+      return api('POST',{action:'join',name:nm}).then(()=>enter(false)).catch(()=>{ROOM='';landing()})}}
+  landing();
+})();
+</script>
+</body>
+</html>

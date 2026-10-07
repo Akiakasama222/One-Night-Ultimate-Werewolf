@@ -1,0 +1,5 @@
+{
+  "name": "one-night-werewolf",
+  "private": true,
+  "dependencies": { "mongodb": "^6.10.0" }
+}
