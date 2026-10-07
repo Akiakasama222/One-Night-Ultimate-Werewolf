@@ -33,9 +33,9 @@ label{display:block;margin:8px 0}
 .log .priv{border-left-color:var(--blood);font-style:italic}
 #cf{display:flex;gap:8px}
 .table{position:relative;width:100%;aspect-ratio:1;container-type:inline-size}
-.disc{position:absolute;inset:7%;border-radius:50%;background:radial-gradient(circle,#2c3768,#1b2150 70%);border:2px solid var(--line)}
+.disc{position:absolute;inset:18%;border-radius:50%;background:radial-gradient(circle,#2c3768,#1b2150 70%);border:2px solid var(--line)}
 .pawn,.tc,.nm{position:absolute;transform:translate(-50%,-50%) rotate(var(--rot,0deg))}
-.pawn{width:11cqw;height:11cqw;filter:drop-shadow(0 0 1.2cqw var(--col))}
+.pawn{width:10cqw;height:10cqw;filter:drop-shadow(0 0 1.2cqw var(--col))}
 .pawn img{width:100%;height:100%;object-fit:contain;display:block}
 .pawn.noimg .fb{display:block;width:80%;height:80%;margin:10%;border-radius:50%;background:var(--col)}
 .nm{--rot:0deg;font-size:clamp(10px,2.9cqw,14px);max-width:18cqw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:#0d1122d9;border:1px solid var(--col);border-radius:20px;padding:0 .8em}
@@ -68,12 +68,12 @@ label{display:block;margin:8px 0}
 <body>
 <main id="m"></main>
 <script>
-const ROLES={Werewolf:['🐺','Wolf team. You know your fellow wolf. A lone wolf may peek at a center card.'],Minion:['🎭','Wolf team. You know the wolves; they don\'t know you.'],Mason:['🧔','Village. You know the other Mason. A lone Mason may peek at a center card.'],Seer:['🔮','Village. Look at one player\'s card, or two center cards.'],Robber:['🗡️','Village. Swap with another player and see your new card.'],Troublemaker:['🌀','Village. Swap two other players\' cards.'],Drunk:['🍺','Village. Swap with a center card without looking.'],Insomniac:['🌙','Village. You see your card again at the end of the night.'],Hunter:['🏹','Village. If you die, whoever you voted for dies too.'],Tanner:['🪢','You win only if you die.'],Villager:['🏡','Village. No power. Use your wits.']};
-const FILE={Troublemaker:'TroubleMaker'}, COLORS=['#4f6bff','#ff5256','#3fc27b','#f2b84b','#b36bff','#2fc4d6','#ff8a3d','#e86bb7','#9ad24a','#c9a37a'];
+const ROLES={Doppelganger:['👥','Look at another player\'s card and become that role. If it has a night action, do it now. Your team is the team of the role you copied.'],Werewolf:['🐺','Wolf team. You know your fellow wolf. A lone wolf may peek at a center card.'],Minion:['🎭','Wolf team. You know the wolves; they don\'t know you.'],Mason:['🧔','Village. You know the other Mason. A lone Mason may peek at a center card.'],Seer:['🔮','Village. Look at one player\'s card, or two center cards.'],Robber:['🗡️','Village. Swap with another player and see your new card.'],Troublemaker:['🌀','Village. Swap two other players\' cards.'],Drunk:['🍺','Village. Swap with a center card without looking.'],Insomniac:['🌙','Village. You see your card again at the end of the night.'],Hunter:['🏹','Village. If you die, whoever you voted for dies too.'],Tanner:['🪢','You win only if you die.'],Villager:['🏡','Village. No power. Use your wits.']};
+const FILE={Troublemaker:'TroubleMaker',Doppelganger:'Doppleganger'}, COLORS=['#4f6bff','#ff5256','#3fc27b','#f2b84b','#b36bff','#2fc4d6','#ff8a3d','#e86bb7','#9ad24a','#c9a37a'];
 const NOERR="onerror=\"this.parentNode.classList.add('noimg')\"";
 const face=r=>`<span class="face"><img src="assets/${FILE[r]||r}.png" alt="${r}" ${NOERR}><span class="fb">${ROLES[r][0]}<small>${r}</small></span></span>`;
 const back=()=>`<span class="face back"><img src="assets/CardBack.png" alt="Hidden card" ${NOERR}><span class="fb">🌙</span></span>`;
-const HELP={Werewolf:'You are alone. Tap one center card to peek at.',Mason:'You are alone. Tap one center card to peek at.',Drunk:'Tap the center card to swap with. You won\'t see it.',Seer:'Tap one player\'s card, or two center cards.',Robber:'Tap the player to rob.',Troublemaker:'Tap two other players to swap.'};
+const HELP={Doppelganger:'Tap another player\'s card to copy their role.',Werewolf:'You are alone. Tap one center card to peek at.',Mason:'You are alone. Tap one center card to peek at.',Drunk:'Tap the center card to swap with. You won\'t see it.',Seer:'Tap one player\'s card, or two center cards.',Robber:'Tap the player to rob.',Troublemaker:'Tap two other players to swap.'};
 const SKIP={Seer:1,Robber:1,Troublemaker:1};
 const $=s=>document.querySelector(s), m=$('#m');
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -138,9 +138,9 @@ function tableHtml(click){
   V.players.forEach((p,k)=>{
     const phi=360*(((k-seat)%N+N)%N)/N,a=phi*Math.PI/180,sn=Math.sin(a),cs=Math.cos(a),P=r=>`left:${(50-r*sn).toFixed(2)}%;top:${(50+r*cs).toFixed(2)}%`;
     const col=COLORS[k%COLORS.length],key='p'+k,mine=!!V.me&&k===V.me.seat,dead=ph==='end'&&V.result&&V.result.rows[k].dead;
-    h+=`<div class="pawn" style="${P(33)};--rot:${phi}deg;--col:${col}"><img src="assets/Player.png" alt="" ${NOERR}><span class="fb"></span></div>`;
-    if(cards)h+=tc(key,known[key]?face(known[key]):back(),`${P(22)};--rot:${phi}deg`,`${click&&!mine?'ck':''} ${sel.includes(key)?'sel':''} ${dead?'dead':''}`);
-    const lx=Math.min(91,Math.max(9,50-45.5*sn)),ly=Math.min(96,Math.max(4,50+45.5*cs)),bd=(ph==='deal'&&p.ready)||(ph==='vote'&&p.voted)?' <span class="bd">✓</span>':dead?' 💀':'';
+    h+=`<div class="pawn" style="${P(40)};--rot:${phi}deg;--col:${col}"><img src="assets/Player.png" alt="" ${NOERR}><span class="fb"></span></div>`;
+    if(cards)h+=tc(key,known[key]?face(known[key]):back(),`${P(24)};--rot:${phi}deg`,`${click&&!mine?'ck':''} ${sel.includes(key)?'sel':''} ${dead?'dead':''}`);
+    const lx=Math.min(91,Math.max(9,50-40*sn)),ly=Math.min(97,50+40*cs+6.8),bd=(ph==='deal'&&p.ready)||(ph==='vote'&&p.voted)?' <span class="bd">✓</span>':dead?' 💀':'';
     h+=`<div class="nm ${mine?'me':''}" style="left:${lx}%;top:${ly}%;--col:${col}">${esc(p.name)}${bd}</div>`;
   });
   if(cards)[0,1,2].forEach(i=>{const key='c'+i;h+=tc(key,known[key]?face(known[key]):back(),`left:${39.5+i*10.5}%;top:50%;--w:9cqw`,`${click?'ck':''} ${sel.includes(key)?'sel':''}`)});
@@ -200,7 +200,7 @@ function tap(k){
     const r=md.role,tog=(a,n)=>a.includes(k)?a.filter(x=>x!==k):[...a,k].slice(-n);
     if(md.vote){if(t==='p')sel=[k]}
     else if(r==='Werewolf'||r==='Mason'||r==='Drunk'){if(t==='c')sel=[k]}
-    else if(r==='Robber'){if(t==='p')sel=[k]}
+    else if(r==='Robber'||r==='Doppelganger'){if(t==='p')sel=[k]}
     else if(r==='Troublemaker'){if(t==='p')sel=tog(sel,2)}
     else if(r==='Seer'){if(t==='p')sel=[k];else sel=tog(sel.filter(x=>x[0]==='c'),2)}
   }
