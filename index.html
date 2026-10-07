@@ -109,14 +109,14 @@ function buildHost(){
 }
 function renderHost(){
   const s=JSON.stringify([V.phase,V.step,V.players,V.chat,V.result,dur]);if(s===sig)return;sig=s;
-  const link=location.origin+'/?room='+ROOM, n=V.players.length;
+  const link=location.origin+'/?room='+ROOM, n=V.players.length, hum=V.players.filter(p=>!p.bot).length;
   let h='';
   if(V.phase==='lobby'||V.phase==='end'){
     if(V.phase==='end')h+=`<h2>Results</h2><p>${esc(V.result.text)}</p><div class="grid">${V.result.rows.map(r=>`<div class="row ${r.dead?'dead':''}"><b>${esc(r.name)}</b>: ${ROLES[r.orig][0]} ${r.orig} → ${ROLES[r.role][0]} ${r.role}<br><span class="mute">${r.votes} votes · voted ${esc(r.voted)}</span></div>`).join('')}<div class="row"><b>Center</b>: ${V.result.center.map(c=>ROLES[c][0]+' '+c).join(', ')}</div></div><hr style="border-color:#2c3260;margin:16px 0">`;
     h+=`<p class="mute">Room code</p><div class="code">${ROOM}</div><p>Friends open <b>${esc(link)}</b> and enter the code.</p>
     <h2>Players (${n}/10)</h2><div class="chips">${V.players.map(p=>`<span>${esc(p.name)}</span>`).join('')||'<span class="mute">Waiting for players…</span>'}</div>
     <p>Discussion time <select id="d">${[3,5,8,10].map(x=>`<option value="${x}" ${x===dur?'selected':''}>${x} min</option>`).join('')}</select></p>
-    <button class="primary" id="go" ${n<1?'disabled':''}>${V.phase==='end'?'Play again':'Start game'}${n<1?' (waiting for a player)':''}</button>`;
+    <button class="primary" id="go" ${hum<1?'disabled':''}>${V.phase==='end'?'Play again':'Start game'}${hum<1?' (waiting for a player)':''}</button>${hum>0&&hum<3?'<p class="mute">Fewer than 3 players: bots will fill the empty seats.</p>':''}`;
   }else{
     const c=V.phase==='deal'?`${V.players.filter(p=>p.ready).length}/${n} players have hidden their card.`:V.phase==='vote'?`${V.players.filter(p=>p.voted).length}/${n} votes in.`:V.phase==='night'?'Everyone keeps their eyes closed.':'';
     h+=`<h2>${esc(phaseText())}</h2><div class="big" id="cd"></div><p class="mute">${c}</p>`;
