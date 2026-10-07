@@ -9,7 +9,7 @@
 :root{--bg:#0d1122;--panel:#161b36;--ink:#ece6d6;--mute:#9094b0;--moon:#f2d98d;--blood:#c8323c;--line:#2c3260}
 *{box-sizing:border-box}
 body{margin:0;min-height:100vh;color:var(--ink);font:16px/1.5 Karla,system-ui,sans-serif;background:radial-gradient(circle at 85% -5%,#2a3568 0,var(--bg) 52%) fixed}
-main{max-width:520px;margin:0 auto;padding:16px 14px 50px;display:flex;flex-direction:column;gap:12px}
+main{max-width:520px;margin:0 auto;padding:54px 14px 50px;display:flex;flex-direction:column;gap:12px}
 main.wide{max-width:760px}
 h1,h2{font-family:Fraunces,Georgia,serif;margin:0}
 h1{font-size:40px;font-weight:800}
@@ -38,7 +38,7 @@ label{display:block;margin:8px 0}
 .pawn{width:10cqw;height:10cqw;filter:drop-shadow(0 0 1.2cqw var(--col))}
 .pawn img{width:100%;height:100%;object-fit:contain;display:block}
 .pawn.noimg .fb{display:block;width:80%;height:80%;margin:10%;border-radius:50%;background:var(--col)}
-.nm{--rot:0deg;font-size:clamp(10px,2.9cqw,14px);max-width:18cqw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:#0d1122d9;border:1px solid var(--col);border-radius:20px;padding:0 .8em}
+.nm{--rot:0deg;font-size:clamp(10px,2.9cqw,14px);max-width:16cqw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:#0d1122d9;border:1px solid var(--col);border-radius:20px;padding:0 .8em}
 .nm.me{background:var(--col);color:#0d1122;font-weight:700}
 .tc{--w:7.5cqw;width:var(--w);height:calc(var(--w)*1.5);border-radius:.8cqw}
 .tc.ck{cursor:pointer}.tc.ck:hover{filter:brightness(1.25)}
@@ -57,6 +57,13 @@ label{display:block;margin:8px 0}
 .bd{color:var(--moon);font-weight:700}
 .peek{display:grid;justify-items:center}
 .sub{font-size:14px;margin:0}
+.rolebtn{position:fixed;top:10px;right:10px;z-index:5;border-radius:20px;padding:6px 14px}
+dialog{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:14px;width:min(520px,94vw);max-height:86vh;padding:16px;overflow:auto}
+dialog::backdrop{background:#0d1122cc}
+.rl{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}
+.rl p{margin:2px 0 0}.rl b{font:600 18px Fraunces,Georgia,serif}
+.rt{--w:72px;position:relative;width:72px;aspect-ratio:2/3;flex:none}.rt small{display:none}
+.hd{display:flex;justify-content:space-between;align-items:center;gap:10px}
 #act{display:grid;gap:8px;text-align:center}
 .grid{display:grid;gap:8px;text-align:left}
 .row{background:#1d2347;border:1px solid var(--line);border-radius:10px;padding:8px 12px}
@@ -67,6 +74,8 @@ label{display:block;margin:8px 0}
 </head>
 <body>
 <main id="m"></main>
+<button class="rolebtn" id="rb" aria-label="Show all roles">📖 Roles</button>
+<dialog id="rd"></dialog>
 <script>
 const ROLES={Doppelganger:['👥','Look at another player\'s card and become that role. If it has a night action, do it now. Your team is the team of the role you copied.'],Werewolf:['🐺','Wolf team. You know your fellow wolf. A lone wolf may peek at a center card.'],Minion:['🎭','Wolf team. You know the wolves; they don\'t know you.'],Mason:['🧔','Village. You know the other Mason. A lone Mason may peek at a center card.'],Seer:['🔮','Village. Look at one player\'s card, or two center cards.'],Robber:['🗡️','Village. Swap with another player and see your new card.'],Troublemaker:['🌀','Village. Swap two other players\' cards.'],Drunk:['🍺','Village. Swap with a center card without looking.'],Insomniac:['🌙','Village. You see your card again at the end of the night.'],Hunter:['🏹','Village. If you die, whoever you voted for dies too.'],Tanner:['🪢','You win only if you die.'],Villager:['🏡','Village. No power. Use your wits.']};
 const FILE={Troublemaker:'TroubleMaker',Doppelganger:'Doppleganger'}, COLORS=['#4f6bff','#ff5256','#3fc27b','#f2b84b','#b36bff','#2fc4d6','#ff8a3d','#e86bb7','#9ad24a','#c9a37a'];
@@ -79,6 +88,13 @@ const $=s=>document.querySelector(s), m=$('#m');
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let uid;try{uid=localStorage.getItem('wwuid')}catch(e){}
 if(!uid){uid='u'+Math.random().toString(36).slice(2,10);try{localStorage.setItem('wwuid',uid)}catch(e){}}
+const TEAM={Werewolf:'Wolf team',Minion:'Wolf team',Tanner:'Own team',Doppelganger:'Team of the role it copies'};
+function roleList(){
+  const order=['Doppelganger','Werewolf','Minion','Mason','Seer','Robber','Troublemaker','Drunk','Insomniac','Hunter','Tanner','Villager'];
+  $('#rd').innerHTML=`<div class="hd"><h2>All roles</h2><button id="rx" autofocus>Close</button></div><p class="mute sub">Night order: Doppelganger, Werewolf, Minion, Mason, Seer, Robber, Troublemaker, Drunk, Insomniac. Each game uses 2 Werewolves plus a random mix of the rest; 3 cards stay in the center.</p>`+order.map(r=>`<div class="rl"><div class="rt">${face(r)}</div><div><b>${r}</b> <span class="mute sub">${TEAM[r]||'Village team'}</span><p>${esc(ROLES[r][1])}</p></div></div>`).join('');
+  $('#rx').onclick=()=>$('#rd').close();$('#rd').showModal();
+}
+$('#rb').onclick=roleList;$('#rd').onclick=e=>{if(e.target===e.currentTarget)e.currentTarget.close()};
 let sel=[],peek=null,selKey='',ROOM='',isHost=false,pin='',name='',V=null,skew=0,tmA=null,sig='',logSig='',dur=5,timer=null;
 const store=(k,v)=>{try{v===undefined?localStorage.getItem(k):localStorage.setItem(k,v)}catch(e){}};
 const load=k=>{try{return localStorage.getItem(k)}catch(e){return null}};
@@ -160,9 +176,9 @@ function renderHost(){
   if(V.phase==='lobby'||V.phase==='end'){
     if(V.phase==='end')h+=`<h2>Results</h2><p>${esc(V.result.text)}</p><div class="table">${tableHtml(false)}</div><div class="grid">${V.result.rows.map(r=>`<div class="row ${r.dead?'dead':''}"><b>${esc(r.name)}</b>: ${ROLES[r.orig][0]} ${r.orig} → ${ROLES[r.role][0]} ${r.role}<br><span class="mute">${r.votes} votes · voted ${esc(r.voted)}</span></div>`).join('')}<div class="row"><b>Center</b>: ${V.result.center.map(c=>ROLES[c][0]+' '+c).join(', ')}</div></div><hr style="border-color:#2c3260;margin:16px 0">`;
     h+=`<p class="mute">Room code</p><div class="code">${ROOM}</div><p>Friends open <b>${esc(link)}</b> and enter the code.</p>
-    <h2>Players (${n}/10)</h2>${V.phase==='lobby'&&n?`<div class="table">${tableHtml(false)}</div>`:''}<div class="chips">${V.players.map(p=>`<span>${esc(p.name)}</span>`).join('')||'<span class="mute">Waiting for players…</span>'}</div>
+    <h2>Players (${hum}/13)</h2>${V.phase==='lobby'&&n?`<div class="table">${tableHtml(false)}</div>`:''}<div class="chips">${V.players.map(p=>`<span>${esc(p.name)}</span>`).join('')||'<span class="mute">Waiting for players…</span>'}</div>
     <p>Discussion time <select id="d">${[3,5,8,10].map(x=>`<option value="${x}" ${x===dur?'selected':''}>${x} min</option>`).join('')}</select></p>
-    <button class="primary" id="go" ${hum<1?'disabled':''}>${V.phase==='end'?'Play again':'Start game'}${hum<1?' (waiting for a player)':''}</button>${hum>0&&hum<3?'<p class="mute">Fewer than 3 players: bots will fill the empty seats.</p>':''}`;
+    <button class="primary" id="go" ${hum<1?'disabled':''}>${V.phase==='end'?'Play again':'Start game'}${hum<1?' (waiting for a player)':''}</button><p class="mute">The table always seats 13. Bots fill every empty seat when the game starts.</p>`;
   }else{
     const c=V.phase==='deal'?`${V.players.filter(p=>p.ready).length}/${n} players have hidden their card.`:V.phase==='vote'?`${V.players.filter(p=>p.voted).length}/${n} votes in.`:V.phase==='night'?'Everyone keeps their eyes closed unless woken.':'';
     h+=`<h2>${esc(phaseText())}</h2><div class="big" id="cd"></div><p class="mute">${c}</p><div class="table">${tableHtml(false)}</div>`;
