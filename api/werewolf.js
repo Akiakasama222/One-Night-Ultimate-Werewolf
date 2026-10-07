@@ -115,7 +115,7 @@ function advance(s, now) {               // moves the clock-driven parts of the 
   while (s.phase === 'night') {
     s.order.forEach(id => { const p = s.players[id]; if (p.bot && wakes(p, ORDER[s.step]) && !p.acted) { botAct(s, id); if (!p.acted) botAct(s, id); } });
     const pend = s.order.some(id => wakes(s.players[id], ORDER[s.step]) && !s.players[id].acted), t = now - s.t;
-    if (t < 3000 || (pend && t < 45000)) break;
+    if (t < 5000 || (pend && t < 45000)) break;
     ch = true;
     if (s.step === ORDER.length - 1) { s.phase = 'day'; s.deadline = now + s.dur * 60000; break; }
     s.step++; s.t = now; enter(s);
@@ -129,12 +129,12 @@ function advance(s, now) {               // moves the clock-driven parts of the 
 }
 function view(s, uid) {
   const p = s.players[uid], night = s.phase === 'night', r = ORDER[s.step];
-  let ask = null;
+  let ask = null; const awake = !!(p && night && wakes(p, r));
   if (p && night && wakes(p, r) && !p.acted) ask = { role: r === 'Doppelganger' && p.dop ? p.dop : r };
   return {
-    phase: s.phase, dur: s.dur, deadline: s.deadline, voteBy: s.voteBy, step: night ? r : null,
+    phase: s.phase, dur: s.dur, deadline: s.deadline, voteBy: s.voteBy, step: awake ? r : null,
     players: s.order.map(id => ({ bot: !!s.players[id].bot, name: s.players[id].name, ready: !!s.players[id].ready, voted: !!s.players[id].vote })),
-    me: p ? { seat: s.order.indexOf(uid), seen: p.seen || {}, orig: p.orig, priv: p.priv, ready: !!p.ready, voted: !!p.vote, win: s.result ? s.result.win[uid] : null, final: s.result ? p.role : null } : null,
+    me: p ? { seat: s.order.indexOf(uid), awake, seen: awake || s.phase === 'end' ? p.seen || {} : {}, orig: p.orig, priv: p.priv, ready: !!p.ready, voted: !!p.vote, win: s.result ? s.result.win[uid] : null, final: s.result ? p.role : null } : null,
     ask,
     result: s.result ? { text: s.result.text, rows: s.result.rows.map(({ id, ...x }) => x), center: s.result.center } : null,
   };
