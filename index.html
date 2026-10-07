@@ -96,7 +96,7 @@ function tick(){
 }
 const phaseText=()=>({lobby:'Waiting for the host to start',deal:'Look at your card',night:`Night: the ${V.step} wakes…`,day:'Day: talk about the night!',vote:'Vote!',end:'Results'}[V.phase]);
 const logHtml=()=>{
-  const priv=(V.me?[`Your starting role: ${V.me.orig}. ${ROLES[V.me.orig][1]}`,...V.me.priv]:[]).map(t=>`<div class="priv">${esc(t)}</div>`);
+  const priv=(V.me&&V.me.orig?[`Your starting role: ${V.me.orig}. ${ROLES[V.me.orig][1]}`,...V.me.priv]:[]).map(t=>`<div class="priv">${esc(t)}</div>`);
   return priv.join('')+V.chat.map(c=>`<div><b>${esc(c.from)}:</b> ${esc(c.text)}</div>`).join('');
 };
 function post(body){return api('POST',body).then(j=>{Object.assign(V,j);render()}).catch(e=>err('⚠️ '+e.message))}
@@ -150,7 +150,7 @@ function renderPlayer(){
   const chatOn=!!me&&['day','vote','end'].includes(ph);
   $('#ci').disabled=$('#cb').disabled=!chatOn;$('#ci').placeholder=chatOn?'Say what you did or saw…':'Chat opens in the morning';
   const ls=JSON.stringify([me&&me.priv,V.chat,me&&me.orig]);if(ls!==logSig){logSig=ls;const l=$('#log');l.innerHTML=logHtml();l.scrollTop=1e9}
-  const up=me&&((ph==='deal'&&!me.ready)||ph==='end');
+  const up=me&&me.orig&&((ph==='deal'&&!me.ready)||ph==='end');
   const shown=me&&(ph==='end'?me.final:me.orig);
   $('#card').className='card '+(up?'up':'down');
   $('#card').innerHTML=up&&shown?`<div><span class="ic">${ROLES[shown][0]}</span><b>${shown}</b></div>`:'<span class="moon"></span>';
@@ -158,12 +158,12 @@ function renderPlayer(){
   let h='';
   if(!me&&ph!=='lobby')h='<p class="mute">Wait for the host to start the next game.</p>';
   else if(ph==='lobby')h=`<p class="mute">Players: ${V.players.map(p=>esc(p.name)).join(', ')}</p>`;
-  else if(ph==='deal')h=me.ready?'<p class="mute">Card hidden. Waiting for the others…</p>':`<p>${esc(ROLES[me.orig][1])}</p><button class="primary" id="hide">Hide my card</button>`;
+  else if(ph==='deal')h=!me.orig?'<p class="mute">Round starting…</p>':me.ready?'<p class="mute">Card hidden. Waiting for the others…</p>':`<p>${esc(ROLES[me.orig][1])}</p><button class="primary" id="hide">Hide my card</button>`;
   else if(ph==='night'&&V.ask)h=`<h2>${V.ask.role}</h2><p class="mute">${V.ask.role==='Troublemaker'?(tmA===null?'Pick the first player to swap.':'Swap '+esc(V.ask.others[tmA])+' with…'):'Make your choice.'}</p>`+askOpts(V.ask).map(o=>`<button data-i="${o.i}">${esc(o.l)}</button>`).join('');
   else if(ph==='night')h='<p class="mute">Eyes closed. Wait for morning.</p>';
   else if(ph==='day')h='<p class="mute">Talk it out in the chat.</p>';
   else if(ph==='vote')h=me.voted?'<p class="mute">Vote cast. Waiting for the others…</p>':'<h2>Who do you vote to kill?</h2>'+V.others.map((n,i)=>`<button data-i="${i}">${esc(n)}</button>`).join('');
-  else if(ph==='end'){const r=V.result;h=`<div class="big">${me.win?'You win':'You lose'}</div><p>${esc(r.text)}</p><div class="grid">${r.rows.map(x=>`<div class="row ${x.dead?'dead':''}"><b>${esc(x.name)}</b>: ${ROLES[x.orig][0]} ${x.orig} → ${ROLES[x.role][0]} ${x.role}<br><span class="mute">${x.votes} votes · voted ${esc(x.voted)}</span></div>`).join('')}<div class="row"><b>Center</b>: ${r.center.map(c=>ROLES[c][0]+' '+c).join(', ')}</div></div><p class="mute">The host can start another round.</p>`}
+  else if(ph==='end'){const r=V.result;h=`${me.orig?`<div class="big">${me.win?'You win':'You lose'}</div>`:'<p>You joined after the round. You\'ll get a card in the next one.</p>'}<p>${esc(r.text)}</p><div class="grid">${r.rows.map(x=>`<div class="row ${x.dead?'dead':''}"><b>${esc(x.name)}</b>: ${ROLES[x.orig][0]} ${x.orig} → ${ROLES[x.role][0]} ${x.role}<br><span class="mute">${x.votes} votes · voted ${esc(x.voted)}</span></div>`).join('')}<div class="row"><b>Center</b>: ${r.center.map(c=>ROLES[c][0]+' '+c).join(', ')}</div></div><p class="mute">The host can start another round.</p>`}
   $('#act').innerHTML=h;
   if($('#hide'))$('#hide').onclick=()=>post({action:'ready'});
   $('#act').querySelectorAll('button[data-i]').forEach(b=>b.onclick=()=>{
