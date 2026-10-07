@@ -147,10 +147,9 @@ module.exports = async (req, res) => {
     const b = req.method === 'POST' ? (typeof req.body === 'string' ? parse(req.body) || {} : req.body || {}) : {};
 
     if (b.action === 'create') {
-      const pin = String(b.pin || '').slice(0, 8);
       for (let i = 0; i < 6; i++) {
         const code = Array.from({ length: 4 }, () => ALPHA[Math.floor(Math.random() * ALPHA.length)]).join('');
-        try { await col.insertOne({ _id: code, s: newState(), pin, v: 0, chat: [], at: new Date() }); return res.json({ ok: true, room: code, pinRequired: !!pin }); }
+        try { await col.insertOne({ _id: code, s: newState(), v: 0, chat: [], at: new Date() }); return res.json({ ok: true, room: code }); }
         catch (e) { if (e.code !== 11000) throw e; }
       }
       return res.status(503).json({ error: 'Could not create a room, please try again' });
@@ -165,13 +164,12 @@ module.exports = async (req, res) => {
       if (!d) return res.status(404).json({ error: 'Room not found' });
       let s = d.s;
       if (advance(structuredClone(s), now)) s = (await mutate(room, x => { advance(x, now); })).s;
-      return res.json({ now, pinRequired: !!d.pin, ...view(s, uid), chat: (d.chat || []).slice(-80) });
+      return res.json({ now, ...view(s, uid), chat: (d.chat || []).slice(-80) });
     }
     if (req.method !== 'POST') return res.status(405).end();
 
-    const d0 = await col.findOne({ _id: room }, { projection: { s: 1, pin: 1 } });
+    const d0 = await col.findOne({ _id: room }, { projection: { s: 1 } });
     if (!d0) return res.status(404).json({ error: 'Room not found' });
-    const pin = d0.pin, ref = () => { if (pin && b.pin !== pin) throw bad('Wrong referee PIN', 401); };
 
     if (b.action === 'say') {
       const s = d0.s;
@@ -180,12 +178,10 @@ module.exports = async (req, res) => {
       if (text) await col.updateOne({ _id: room }, { $push: { chat: { $each: [{ from: s.players[uid].name, text }], $slice: -80 } }, $set: { at: new Date() } });
       return res.json({ ok: true });
     }
-    if (b.action === 'auth') { ref(); return res.json({ ok: true }); }
 
     const { s } = await mutate(room, async (s, d) => {
       advance(s, now);
       if (b.action === 'start') {
-        ref();
         if (!['lobby', 'end'].includes(s.phase)) throw bad('A round is already running');
         if (s.order.length < MIN_PLAYERS) throw bad('Need at least ' + MIN_PLAYERS + ' players');
         s.order = shuffle(s.order); // seats are drawn at random each round
@@ -194,7 +190,7 @@ module.exports = async (req, res) => {
         ids.forEach((id, i) => Object.assign(s.players[id], { orig: cards[i], role: cards[i], ready: false, acted: false, vote: null, priv: [], seen: {} }));
         Object.assign(s, { center: cards.slice(n), phase: 'countdown', startAt: now + 6000, result: null, step: 0, dur: [3, 5, 8, 10].includes(+b.dur) ? +b.dur : 5 });
         d.clearChat = true;
-      } else if (b.action === 'skip') { ref(); if (s.phase === 'day') s.deadline = now; }
+      } else if (b.action === 'skip') { if (s.phase === 'day') s.deadline = now; }
       else if (b.action === 'join') {
         if (!uid) throw bad('uid required');
         if (!s.players[uid]) {
