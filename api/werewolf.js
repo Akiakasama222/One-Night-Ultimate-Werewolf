@@ -2,9 +2,9 @@
 const { MongoClient } = require('mongodb');
 const URI = process.env.MONGODB_URI;
 const ROOM_RE = /^[A-Z0-9]{4}$/, ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-const ORDER = ['Werewolf', 'Minion', 'Mason', 'Seer', 'Robber', 'Troublemaker', 'Drunk', 'Insomniac'];
+const ORDER = ['Doppelganger', 'Werewolf', 'Minion', 'Mason', 'Seer', 'Robber', 'Troublemaker', 'Drunk', 'Insomniac'];
 // Deck: always 2 Werewolves, then (players + 1) cards drawn from this pool, so the center always holds 3 cards.
-const POOL = ['Mason', 'Mason', 'Minion', 'Seer', 'Robber', 'Troublemaker', 'Drunk', 'Insomniac', 'Hunter', 'Tanner', 'Villager', 'Villager', 'Villager'];
+const POOL = ['Doppelganger', 'Mason', 'Mason', 'Minion', 'Seer', 'Robber', 'Troublemaker', 'Drunk', 'Insomniac', 'Hunter', 'Tanner', 'Villager', 'Villager', 'Villager'];
 
 let colP; // one cached connection per warm function instance
 const rooms = () => colP ||= new MongoClient(URI, { maxPoolSize: 5 }).connect().then(async c => {
@@ -16,16 +16,21 @@ const parse = s => { try { return JSON.parse(s); } catch { return null; } };
 const clean = s => String(s || '').replace(/[<>]/g, '').trim().slice(0, 14);
 const shuffle = a => { a = [...a]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const bad = (msg, status = 400) => Object.assign(new Error(msg), { status });
+// Who wakes at a night step. A Doppelganger wakes first to copy a card, then again at the step of a copied Werewolf/Minion/Mason/Insomniac.
+const COPY_LATER = ['Werewolf', 'Minion', 'Mason', 'Insomniac'], COPY_NOW = ['Seer', 'Robber', 'Troublemaker', 'Drunk'];
+const wakes = (p, step) => step === 'Doppelganger' ? p.orig === 'Doppelganger' : p.orig === step || (p.orig === 'Doppelganger' && p.dop === step && COPY_LATER.includes(step));
+const eff = p => p.role === 'Doppelganger' ? (p.dop || 'Villager') : p.role; // role used for teams and win conditions
 const MIN_PLAYERS = 3; // bots fill empty seats up to this number when a round starts
 const newState = () => ({ phase: 'lobby', players: {}, order: [], center: [], step: 0, t: 0, deadline: 0, voteBy: 0, dur: 5, result: null });
 
 // ---- game engine (pure functions on the state object) ----
 function enter(s) {                      // a night step starts: info-only roles get their info right away
   const r = ORDER[s.step], seat = id => s.order.indexOf(id), nm = ids => ids.map(x => s.players[x].name).join(', ');
-  const of = role => s.order.filter(id => s.players[id].orig === role);
+  const of = role => s.order.filter(id => wakes(s.players[id], role));
   s.order.forEach(id => {
-    const p = s.players[id]; if (p.orig !== r) return;
-    p.seen = p.seen || {};
+    const p = s.players[id]; if (!wakes(p, r)) return;
+    p.seen = p.seen || {}; if (r !== 'Doppelganger') p.acted = false;
+    if (r === 'Doppelganger') return;
     if (r === 'Werewolf' || r === 'Mason') {
       const o = of(r).filter(x => x !== id);
       if (o.length) { o.forEach(x => p.seen['p' + seat(x)] = r); p.priv.push(`Your fellow ${r.toLowerCase()}: ${nm(o)}.`); p.acted = true; }
@@ -37,10 +42,11 @@ function enter(s) {                      // a night step starts: info-only roles
   });
 }
 function botAct(s, id) {                 // bots pick random legal moves
-  const r = ORDER[s.step], me = s.order.indexOf(id), R = k => Math.floor(Math.random() * k);
+  const p0 = s.players[id], step = ORDER[s.step], r = step === 'Doppelganger' && p0.dop ? p0.dop : step, me = s.order.indexOf(id), R = k => Math.floor(Math.random() * k);
   const others = s.order.map((_, i) => i).filter(i => i !== me), pp = () => 'p' + others.splice(R(others.length), 1)[0];
   let sel;
-  if (r === 'Werewolf' || r === 'Mason' || r === 'Drunk') sel = ['c' + R(3)];
+  if (r === 'Doppelganger') sel = [pp()];
+  else if (r === 'Werewolf' || r === 'Mason' || r === 'Drunk') sel = ['c' + R(3)];
   else if (r === 'Seer') sel = R(2) ? [pp()] : ['c0', 'c' + (1 + R(2))];
   else if (r === 'Robber') sel = [pp()];
   else sel = [pp(), pp()];
@@ -48,14 +54,22 @@ function botAct(s, id) {                 // bots pick random legal moves
 }
 // sel: array of 'p<seat>' (a player, by seat number) or 'c<0-2>' (a center card)
 function act(s, id, sel) {
-  const p = s.players[id], r = ORDER[s.step];
-  if (s.phase !== 'night' || p.orig !== r || p.acted) throw bad('Not your turn');
+  const p = s.players[id], step = ORDER[s.step];
+  if (s.phase !== 'night' || !wakes(p, step) || p.acted) throw bad('Not your turn');
+  const r = step === 'Doppelganger' && p.dop ? p.dop : step;
   p.seen = p.seen || {};
   const me = s.order.indexOf(id);
   const T = (Array.isArray(sel) ? sel : []).slice(0, 3).map(k => { const m = /^([pc])(\d{1,2})$/.exec(String(k)); return m && { t: m[1], i: +m[2], k: m[0] }; });
   if (T.some(x => !x)) throw bad('Bad choice');
   const okP = x => x.t === 'p' && x.i < s.order.length && x.i !== me, okC = x => x.t === 'c' && x.i < 3;
   const P = x => s.players[s.order[x.i]];
+  if (r === 'Doppelganger') {
+    if (T.length !== 1 || !okP(T[0])) throw bad('Pick a player to copy');
+    const t = P(T[0]); p.dop = t.role; p.seen[T[0].k] = t.role;
+    p.priv.push(`You looked at ${t.name}: the ${t.role}. You are now a Doppelganger-${t.role}.`);
+    if (COPY_NOW.includes(t.role)) p.priv.push(`Use the ${t.role} power now.`); else p.acted = true;
+    return;
+  }
   if (r === 'Werewolf' || r === 'Mason' || r === 'Drunk') {
     if (T.length !== 1 || !okC(T[0])) throw bad('Pick a center card');
     const c = T[0].i;
@@ -83,11 +97,11 @@ function resolve(s) {
   ids.forEach(id => votes[pl[id].vote]++);
   const max = Math.max(...Object.values(votes));
   const dead = max > 1 ? ids.filter(id => votes[id] === max) : [];
-  const h = dead.find(id => pl[id].role === 'Hunter');
+  const h = dead.find(id => eff(pl[id]) === 'Hunter');
   if (h && !dead.includes(pl[h].vote)) dead.push(pl[h].vote);
-  const roles = dead.map(id => pl[id].role), wolves = ids.some(id => pl[id].role === 'Werewolf'), tanner = roles.includes('Tanner');
+  const roles = dead.map(id => eff(pl[id])), wolves = ids.some(id => eff(pl[id]) === 'Werewolf'), tanner = roles.includes('Tanner');
   const village = wolves ? roles.includes('Werewolf') : (dead.length === 0 || roles.every(r => r === 'Minion')), wolfTeam = !village && !tanner;
-  const win = {}; ids.forEach(id => { const r = pl[id].role; win[id] = r === 'Werewolf' || r === 'Minion' ? wolfTeam : r === 'Tanner' ? tanner : village; });
+  const win = {}; ids.forEach(id => { const r = eff(pl[id]); win[id] = r === 'Werewolf' || r === 'Minion' ? wolfTeam : r === 'Tanner' ? tanner : village; });
   s.result = {
     text: (dead.length ? 'Dead: ' + dead.map(id => `${pl[id].name} (${pl[id].role})`).join(', ') + '. ' : 'Nobody got more than one vote, so nobody died. ') + (village ? 'The village wins.' : tanner ? 'The Tanner wins.' : 'The wolves win.'),
     rows: ids.map(id => ({ id, name: pl[id].name, orig: pl[id].orig, role: pl[id].role, votes: votes[id], voted: pl[pl[id].vote].name, dead: dead.includes(id) })),
@@ -99,8 +113,8 @@ function advance(s, now) {               // moves the clock-driven parts of the 
   let ch = false;
   if (s.phase === 'deal' && s.order.length && s.order.every(id => s.players[id].ready)) { s.phase = 'night'; s.step = 0; s.t = now; enter(s); ch = true; }
   while (s.phase === 'night') {
-    s.order.forEach(id => { const p = s.players[id]; if (p.bot && p.orig === ORDER[s.step] && !p.acted) botAct(s, id); });
-    const pend = s.order.some(id => s.players[id].orig === ORDER[s.step] && !s.players[id].acted), t = now - s.t;
+    s.order.forEach(id => { const p = s.players[id]; if (p.bot && wakes(p, ORDER[s.step]) && !p.acted) { botAct(s, id); if (!p.acted) botAct(s, id); } });
+    const pend = s.order.some(id => wakes(s.players[id], ORDER[s.step]) && !s.players[id].acted), t = now - s.t;
     if (t < 3000 || (pend && t < 45000)) break;
     ch = true;
     if (s.step === ORDER.length - 1) { s.phase = 'day'; s.deadline = now + s.dur * 60000; break; }
@@ -116,7 +130,7 @@ function advance(s, now) {               // moves the clock-driven parts of the 
 function view(s, uid) {
   const p = s.players[uid], night = s.phase === 'night', r = ORDER[s.step];
   let ask = null;
-  if (p && night && p.orig === r && !p.acted) ask = { role: r };
+  if (p && night && wakes(p, r) && !p.acted) ask = { role: r === 'Doppelganger' && p.dop ? p.dop : r };
   return {
     phase: s.phase, dur: s.dur, deadline: s.deadline, voteBy: s.voteBy, step: night ? r : null,
     players: s.order.map(id => ({ bot: !!s.players[id].bot, name: s.players[id].name, ready: !!s.players[id].ready, voted: !!s.players[id].vote })),
