@@ -116,7 +116,7 @@ function renderHost(){
     h+=`<p class="mute">Room code</p><div class="code">${ROOM}</div><p>Friends open <b>${esc(link)}</b> and enter the code.</p>
     <h2>Players (${n}/10)</h2><div class="chips">${V.players.map(p=>`<span>${esc(p.name)}</span>`).join('')||'<span class="mute">Waiting for players…</span>'}</div>
     <p>Discussion time <select id="d">${[3,5,8,10].map(x=>`<option value="${x}" ${x===dur?'selected':''}>${x} min</option>`).join('')}</select></p>
-    <button class="primary" id="go" ${n<3?'disabled':''}>${V.phase==='end'?'Play again':'Start game'}${n<3?' (need 3+ players)':''}</button>`;
+    <button class="primary" id="go" ${n<1?'disabled':''}>${V.phase==='end'?'Play again':'Start game'}${n<1?' (waiting for a player)':''}</button>`;
   }else{
     const c=V.phase==='deal'?`${V.players.filter(p=>p.ready).length}/${n} players have hidden their card.`:V.phase==='vote'?`${V.players.filter(p=>p.voted).length}/${n} votes in.`:V.phase==='night'?'Everyone keeps their eyes closed.':'';
     h+=`<h2>${esc(phaseText())}</h2><div class="big" id="cd"></div><p class="mute">${c}</p>`;
