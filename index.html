@@ -57,7 +57,7 @@ label{display:block;margin:8px 0}
 .bd{color:var(--moon);font-weight:700}
 .peek{display:grid;justify-items:center}
 .sub{font-size:14px;margin:0}
-.rolebtn{position:fixed;top:10px;right:10px;z-index:5;border-radius:20px;padding:6px 14px}
+.tools{position:fixed;top:10px;right:10px;z-index:5;display:flex;gap:8px}.tools button{border-radius:20px;padding:6px 14px}
 dialog{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:14px;width:min(520px,94vw);max-height:86vh;padding:16px;overflow:auto}
 dialog::backdrop{background:#0d1122cc}
 .rl{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}
@@ -74,7 +74,7 @@ dialog::backdrop{background:#0d1122cc}
 </head>
 <body>
 <main id="m"></main>
-<button class="rolebtn" id="rb" aria-label="Show all roles">📖 Roles</button>
+<div class="tools"><button id="sb" aria-pressed="false">🔇 Sound off</button><button id="rb" aria-label="Show all roles">📖 Roles</button></div>
 <dialog id="rd"></dialog>
 <script>
 const ROLES={Doppelganger:['👥','Look at another player\'s card and become that role. If it has a night action, do it now. Your team is the team of the role you copied.'],Werewolf:['🐺','Wolf team. You know your fellow wolf. A lone wolf may peek at a center card.'],Minion:['🎭','Wolf team. You know the wolves; they don\'t know you.'],Mason:['🧔','Village. You know the other Mason. A lone Mason may peek at a center card.'],Seer:['🔮','Village. Look at one player\'s card, or two center cards.'],Robber:['🗡️','Village. Swap with another player and see your new card.'],Troublemaker:['🌀','Village. Swap two other players\' cards.'],Drunk:['🍺','Village. Swap with a center card without looking.'],Insomniac:['🌙','Village. You see your card again at the end of the night.'],Hunter:['🏹','Village. If you die, whoever you voted for dies too.'],Tanner:['🪢','You win only if you die.'],Villager:['🏡','Village. No power. Use your wits.']};
@@ -95,7 +95,7 @@ function roleList(){
   $('#rx').onclick=()=>$('#rd').close();$('#rd').showModal();
 }
 $('#rb').onclick=roleList;$('#rd').onclick=e=>{if(e.target===e.currentTarget)e.currentTarget.close()};
-let sel=[],peek=null,selKey='',ROOM='',isHost=false,pin='',name='',V=null,skew=0,tmA=null,sig='',logSig='',dur=5,timer=null;
+let lastSec=-1,lastPh='',sel=[],peek=null,selKey='',ROOM='',isHost=false,pin='',name='',V=null,skew=0,tmA=null,sig='',logSig='',dur=5,timer=null;
 const store=(k,v)=>{try{v===undefined?localStorage.getItem(k):localStorage.setItem(k,v)}catch(e){}};
 const load=k=>{try{return localStorage.getItem(k)}catch(e){return null}};
 
@@ -131,16 +131,53 @@ async function poll(){
 }
 function tick(){
   const el=$('#cd');if(!el||!V)return;
+  if(V.phase==='countdown'){const c=Math.max(0,Math.ceil((V.startAt-(Date.now()+skew))/1000));el.textContent=c||'';el.style.fontSize='64px';if(c!==lastSec){lastSec=c;if(c>0)Amb.cue('beep');else Amb.cue('go')}return}
+  el.style.fontSize='';lastSec=-1;
   const end=V.phase==='day'?V.deadline:V.phase==='vote'?V.voteBy:0;
   if(!end){el.textContent='';return}
   const s=Math.max(0,Math.round((end-(Date.now()+skew))/1000));el.textContent=`${s/60|0}:${String(s%60).padStart(2,'0')}`;
 }
-const phaseText=()=>({lobby:'Waiting for the host to start',deal:'Look at your card',night:'Night',day:'Day: talk about the night!',vote:'Vote!',end:'Results'}[V.phase]);
+const phaseText=()=>({lobby:'Waiting for the host to start',countdown:'Get ready…',deal:'Look at your card',night:'Night',day:'Day: talk about the night!',vote:'Vote!',end:'Results'}[V.phase]);
 const logHtml=()=>{
   const priv=(V.me&&V.me.orig?[`Your starting role: ${V.me.orig}. ${ROLES[V.me.orig][1]}`,...V.me.priv]:[]).map(t=>`<div class="priv">${esc(t)}</div>`);
   return priv.join('')+V.chat.map(c=>`<div><b>${esc(c.from)}:</b> ${esc(c.text)}</div>`).join('');
 };
 function post(body){return api('POST',body).then(j=>{Object.assign(V,j);render()}).catch(e=>err('⚠️ '+e.message))}
+
+/* ---------- AMBIANCE (synthesized with Web Audio, no files needed) ---------- */
+const Amb=(()=>{
+  let ctx,master,fx,cur=null,want='calm',on=false;
+  const init=()=>{if(ctx)return;ctx=new(window.AudioContext||window.webkitAudioContext)();master=ctx.createGain();master.gain.value=.8;master.connect(ctx.destination);fx=ctx.createGain();fx.connect(master)};
+  const group=()=>{const g=ctx.createGain();g.gain.value=0;g.connect(master);return{g,src:[],timers:[],dead:false}};
+  const noise=()=>{const s=ctx.createBufferSource(),b=ctx.createBuffer(1,ctx.sampleRate*3,ctx.sampleRate),d=b.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;s.buffer=b;s.loop=true;s.start();return s};
+  const osc=(G,type,f,gain)=>{const o=ctx.createOscillator(),v=ctx.createGain();o.type=type;o.frequency.value=f;v.gain.value=gain;o.connect(v);v.connect(G.g);o.start();G.src.push(o)};
+  const wind=(G,gain,f)=>{const n=noise(),bp=ctx.createBiquadFilter(),v=ctx.createGain(),l=ctx.createOscillator(),lg=ctx.createGain();bp.type='bandpass';bp.frequency.value=f;bp.Q.value=.7;v.gain.value=gain;l.frequency.value=.11;lg.gain.value=f*.45;l.connect(lg);lg.connect(bp.frequency);n.connect(bp);bp.connect(v);v.connect(G.g);l.start();G.src.push(n,l)};
+  const tone=(dest,fs,dur,gain,at=0,type='sine',vib=0)=>{const t=ctx.currentTime+at,o=ctx.createOscillator(),v=ctx.createGain();o.type=type;o.frequency.setValueAtTime(fs[0],t);fs.slice(1).forEach((f,i)=>o.frequency.linearRampToValueAtTime(f,t+dur*(i+1)/(fs.length-1)));
+    if(vib){const l=ctx.createOscillator(),lg=ctx.createGain();l.frequency.value=5.5;lg.gain.value=vib;l.connect(lg);lg.connect(o.frequency);l.start(t);l.stop(t+dur+.2)}
+    v.gain.setValueAtTime(0,t);v.gain.linearRampToValueAtTime(gain,t+dur*.25);v.gain.exponentialRampToValueAtTime(.0001,t+dur);o.connect(v);v.connect(dest);o.start(t);o.stop(t+dur+.2)};
+  const every=(G,a,b,fn)=>{const go=()=>G.timers.push(setTimeout(()=>{if(G.dead)return;fn();go()},(a+Math.random()*(b-a))*1000));go()};
+  const MOODS={
+    calm:G=>{osc(G,'sine',110,.05);osc(G,'sine',164.8,.03);wind(G,.02,400)},
+    night:G=>{osc(G,'sine',55,.09);osc(G,'triangle',82.4,.025);wind(G,.07,500);every(G,14,28,()=>tone(G.g,[300,480,430,330],3.8,.07,0,'sine',9))},
+    day:G=>{osc(G,'sine',196,.025);osc(G,'sine',246.9,.02);wind(G,.025,700);every(G,2,6,()=>{for(let i=0;i<3;i++){const f=2800+Math.random()*1400;tone(G.g,[f,f+500],.12,.035,i*.16)}})},
+    vote:G=>{osc(G,'sawtooth',55,.03);osc(G,'sine',58.3,.06);every(G,1.1,1.1,()=>{tone(G.g,[75,38],.2,.4);tone(G.g,[70,36],.2,.3,.24)})}
+  };
+  const stop=G=>{if(!G)return;G.dead=true;G.timers.forEach(clearTimeout);const t=ctx.currentTime;G.g.gain.cancelScheduledValues(t);G.g.gain.setValueAtTime(G.g.gain.value,t);G.g.gain.linearRampToValueAtTime(0,t+1.5);setTimeout(()=>{G.src.forEach(o=>{try{o.stop()}catch(e){}});G.g.disconnect()},1700)};
+  const apply=()=>{if(!on||!ctx)return;if(cur&&cur.name===want)return;stop(cur);const G=group();G.name=want;MOODS[want](G);G.g.gain.linearRampToValueAtTime(1,ctx.currentTime+2);cur=G};
+  return{
+    mood(n){want=n;apply()},
+    cue(n){if(!on||!ctx)return;
+      if(n==='beep')tone(fx,[880,880],.18,.12,0,'sine');
+      else if(n==='go')tone(fx,[440,660,880],.9,.14,0,'triangle');
+      else if(n==='dawn'){tone(fx,[523,523],1.6,.08);tone(fx,[659,659],1.6,.06,.25)}
+      else if(n==='end'){[392,494,587,784].forEach((f,i)=>tone(fx,[f,f],2,.07,i*.18))}},
+    set(v){on=v;if(on){init();ctx.resume();apply()}else{stop(cur);cur=null}
+      const b=$('#sb');b.textContent=on?'🔊 Sound on':'🔇 Sound off';b.setAttribute('aria-pressed',on);try{localStorage.setItem('wwSound',on?'1':'0')}catch(e){}},
+    get on(){return on}
+  };
+})();
+$('#sb').onclick=()=>Amb.set(!Amb.on);
+try{if(localStorage.getItem('wwSound')==='1')addEventListener('pointerdown',()=>{if(!Amb.on)Amb.set(true)},{once:true})}catch(e){}
 
 /* ---------- ROUND TABLE ---------- */
 function knownMap(){
@@ -171,16 +208,16 @@ function buildHost(){
 }
 function renderHost(){
   const s=JSON.stringify([V.phase,V.step,V.players,V.chat,V.result,dur]);if(s===sig)return;sig=s;
-  const link=location.origin+'/?room='+ROOM, n=V.players.length, hum=V.players.filter(p=>!p.bot).length;
+  const link=location.origin+'/?room='+ROOM, n=V.players.length, hum=n;
   let h='';
   if(V.phase==='lobby'||V.phase==='end'){
     if(V.phase==='end')h+=`<h2>Results</h2><p>${esc(V.result.text)}</p><div class="table">${tableHtml(false)}</div><div class="grid">${V.result.rows.map(r=>`<div class="row ${r.dead?'dead':''}"><b>${esc(r.name)}</b>: ${ROLES[r.orig][0]} ${r.orig} → ${ROLES[r.role][0]} ${r.role}<br><span class="mute">${r.votes} votes · voted ${esc(r.voted)}</span></div>`).join('')}<div class="row"><b>Center</b>: ${V.result.center.map(c=>ROLES[c][0]+' '+c).join(', ')}</div></div><hr style="border-color:#2c3260;margin:16px 0">`;
     h+=`<p class="mute">Room code</p><div class="code">${ROOM}</div><p>Friends open <b>${esc(link)}</b> and enter the code.</p>
     <h2>Players (${hum}/13)</h2>${V.phase==='lobby'&&n?`<div class="table">${tableHtml(false)}</div>`:''}<div class="chips">${V.players.map(p=>`<span>${esc(p.name)}</span>`).join('')||'<span class="mute">Waiting for players…</span>'}</div>
     <p>Discussion time <select id="d">${[3,5,8,10].map(x=>`<option value="${x}" ${x===dur?'selected':''}>${x} min</option>`).join('')}</select></p>
-    <button class="primary" id="go" ${hum<1?'disabled':''}>${V.phase==='end'?'Play again':'Start game'}${hum<1?' (waiting for a player)':''}</button><p class="mute">The table always seats 13. Bots fill every empty seat when the game starts.</p>`;
+    <button class="primary" id="go" ${hum<3?'disabled':''}>${V.phase==='end'?'Play again':'Start game'}${hum<3?` (need ${3-hum} more)`:''}</button><p class="mute">3 to 13 players. A countdown runs before the cards are dealt.</p>`;
   }else{
-    const c=V.phase==='deal'?`${V.players.filter(p=>p.ready).length}/${n} players have hidden their card.`:V.phase==='vote'?`${V.players.filter(p=>p.voted).length}/${n} votes in.`:V.phase==='night'?'Everyone keeps their eyes closed unless woken.':'';
+    const c=V.phase==='countdown'?'Everyone get ready. Cards are dealt when the countdown ends.':V.phase==='deal'?`${V.players.filter(p=>p.ready).length}/${n} players have hidden their card.`:V.phase==='vote'?`${V.players.filter(p=>p.voted).length}/${n} votes in.`:V.phase==='night'?'Everyone keeps their eyes closed unless woken.':'';
     h+=`<h2>${esc(phaseText())}</h2><div class="big" id="cd"></div><p class="mute">${c}</p><div class="table">${tableHtml(false)}</div>`;
     if(V.phase==='day'||V.phase==='vote')h+=`<div class="log">${V.chat.map(x=>`<div><b>${esc(x.from)}:</b> ${esc(x.text)}</div>`).join('')||'<span class="mute">No messages yet.</span>'}</div>`;
     if(V.phase==='day')h+=`<button class="primary" id="sk">Start the vote now</button>`;
@@ -235,6 +272,7 @@ function renderPlayer(){
   let h='';const md=mode();
   if(!me&&ph!=='lobby')h='<p class="mute">Wait for the host to start the next game.</p>';
   else if(ph==='lobby')h=`<p class="mute">Players: ${V.players.map(p=>esc(p.name)).join(', ')||'none yet'}</p>`;
+  else if(ph==='countdown')h='<p class="mute">Get ready. Your card is dealt when the countdown ends.</p>';
   else if(ph==='deal')h=!me.orig?'<p class="mute">Round starting…</p>':me.ready?'<p class="mute">Card hidden. Waiting for the others…</p>':`<div class="bigc">${face(me.orig)}</div><p><b>${me.orig}</b><br>${esc(ROLES[me.orig][1])}</p><button class="primary" id="hide">Hide my card</button>`;
   else if(ph==='night'&&V.ask)h=`<h2>${V.ask.role}</h2><p class="mute">${HELP[V.ask.role]}</p><p>Selected: <b>${selText()}</b></p><button class="primary" id="ok" ${valid()?'':'disabled'}>Confirm</button>${SKIP[V.ask.role]?'<button id="skip">Do nothing</button>':''}`;
   else if(ph==='night')h=me.awake?'<p>You are awake. Look at the table.</p>':'<p class="mute">Eyes closed. Wait for morning.</p>';
@@ -247,7 +285,11 @@ function renderPlayer(){
   if($('#ok'))$('#ok').onclick=()=>{const s=sel;sel=[];md.vote?post({action:'vote',a:+s[0].slice(1)}):post({action:'act',sel:s})};
   if($('#skip'))$('#skip').onclick=()=>{sel=[];post({action:'act',sel:[]})};
 }
-function render(){isHost?renderHost():renderPlayer()}
+function render(){
+  if(V.phase!==lastPh){if(V.phase==='end')Amb.cue('end');else if(V.phase==='day')Amb.cue('dawn');lastPh=V.phase}
+  Amb.mood(({night:'night',day:'day',vote:'vote'})[V.phase]||'calm');
+  isHost?renderHost():renderPlayer();
+}
 
 /* auto-reconnect after a refresh */
 (function(){
