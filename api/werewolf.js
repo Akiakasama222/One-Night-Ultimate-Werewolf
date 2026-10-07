@@ -2,8 +2,9 @@
 const { MongoClient } = require('mongodb');
 const URI = process.env.MONGODB_URI;
 const ROOM_RE = /^[A-Z0-9]{4}$/, ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-const ORDER = ['Werewolf', 'Minion', 'Seer', 'Robber', 'Troublemaker', 'Drunk', 'Insomniac'];
-const POOL = ['Seer', 'Robber', 'Troublemaker', 'Drunk', 'Insomniac', 'Minion', 'Tanner', 'Hunter', 'Villager', 'Villager', 'Villager'];
+const ORDER = ['Werewolf', 'Minion', 'Mason', 'Seer', 'Robber', 'Troublemaker', 'Drunk', 'Insomniac'];
+// Deck: always 2 Werewolves, then (players + 1) cards drawn from this pool, so the center always holds 3 cards.
+const POOL = ['Mason', 'Mason', 'Minion', 'Seer', 'Robber', 'Troublemaker', 'Drunk', 'Insomniac', 'Hunter', 'Tanner', 'Villager', 'Villager', 'Villager'];
 
 let colP; // one cached connection per warm function instance
 const rooms = () => colP ||= new MongoClient(URI, { maxPoolSize: 5 }).connect().then(async c => {
@@ -20,42 +21,59 @@ const newState = () => ({ phase: 'lobby', players: {}, order: [], center: [], st
 
 // ---- game engine (pure functions on the state object) ----
 function enter(s) {                      // a night step starts: info-only roles get their info right away
-  const r = ORDER[s.step], ws = s.order.filter(id => s.players[id].orig === 'Werewolf'), nm = ids => ids.map(x => s.players[x].name).join(', ');
+  const r = ORDER[s.step], seat = id => s.order.indexOf(id), nm = ids => ids.map(x => s.players[x].name).join(', ');
+  const of = role => s.order.filter(id => s.players[id].orig === role);
   s.order.forEach(id => {
     const p = s.players[id]; if (p.orig !== r) return;
-    if (r === 'Werewolf') { const o = ws.filter(x => x !== id); if (o.length) { p.priv.push('Your fellow werewolf: ' + nm(o) + '.'); p.acted = true; } }
-    else if (r === 'Minion') { p.priv.push(ws.length ? 'The werewolves are: ' + nm(ws) + '.' : 'There are no werewolves among the players.'); p.acted = true; }
-    else if (r === 'Troublemaker' && s.order.length < 3) { p.priv.push('Not enough players to swap anyone.'); p.acted = true; }
-    else if (r === 'Insomniac') { p.priv.push('Your card is now the ' + p.role + '.'); p.acted = true; }
+    p.seen = p.seen || {};
+    if (r === 'Werewolf' || r === 'Mason') {
+      const o = of(r).filter(x => x !== id);
+      if (o.length) { o.forEach(x => p.seen['p' + seat(x)] = r); p.priv.push(`Your fellow ${r.toLowerCase()}: ${nm(o)}.`); p.acted = true; }
+    } else if (r === 'Minion') {
+      const ws = of('Werewolf'); ws.forEach(x => p.seen['p' + seat(x)] = 'Werewolf');
+      p.priv.push(ws.length ? 'The werewolves are: ' + nm(ws) + '.' : 'There are no werewolves among the players.'); p.acted = true;
+    } else if (r === 'Troublemaker' && s.order.length < 3) { p.priv.push('Not enough players to swap anyone.'); p.acted = true; }
+    else if (r === 'Insomniac') { p.seen['p' + seat(id)] = p.role; p.priv.push('Your card is now the ' + p.role + '.'); p.acted = true; }
   });
 }
 function botAct(s, id) {                 // bots pick random legal moves
-  const r = ORDER[s.step], n = s.order.length - 1, R = k => Math.floor(Math.random() * k);
-  let a = 0, b;
-  if (r === 'Werewolf' || r === 'Drunk') a = R(3);
-  else if (r === 'Seer' || r === 'Robber') a = R(n + 1);
-  else { a = R(n); do b = R(n); while (b === a); }
-  try { act(s, id, { a, b }); } catch (e) { s.players[id].acted = true; }
+  const r = ORDER[s.step], me = s.order.indexOf(id), R = k => Math.floor(Math.random() * k);
+  const others = s.order.map((_, i) => i).filter(i => i !== me), pp = () => 'p' + others.splice(R(others.length), 1)[0];
+  let sel;
+  if (r === 'Werewolf' || r === 'Mason' || r === 'Drunk') sel = ['c' + R(3)];
+  else if (r === 'Seer') sel = R(2) ? [pp()] : ['c0', 'c' + (1 + R(2))];
+  else if (r === 'Robber') sel = [pp()];
+  else sel = [pp(), pp()];
+  try { act(s, id, sel); } catch (e) { s.players[id].acted = true; }
 }
-function act(s, id, b) {
+// sel: array of 'p<seat>' (a player, by seat number) or 'c<0-2>' (a center card)
+function act(s, id, sel) {
   const p = s.players[id], r = ORDER[s.step];
   if (s.phase !== 'night' || p.orig !== r || p.acted) throw bad('Not your turn');
-  const o = s.order.filter(x => x !== id), L = x => s.players[x], a = Math.floor(+b.a), q = Math.floor(+b.b);
-  const inR = (v, n) => Number.isInteger(v) && v >= 0 && v < n;
-  if (r === 'Werewolf' || r === 'Drunk') {
-    if (!inR(a, 3)) throw bad('Pick a center card');
-    if (r === 'Werewolf') p.priv.push(`Center ${a + 1} is the ${s.center[a]}.`);
-    else { [p.role, s.center[a]] = [s.center[a], p.role]; p.priv.push(`You swapped with Center ${a + 1}. You don't know your new card.`); }
+  p.seen = p.seen || {};
+  const me = s.order.indexOf(id);
+  const T = (Array.isArray(sel) ? sel : []).slice(0, 3).map(k => { const m = /^([pc])(\d{1,2})$/.exec(String(k)); return m && { t: m[1], i: +m[2], k: m[0] }; });
+  if (T.some(x => !x)) throw bad('Bad choice');
+  const okP = x => x.t === 'p' && x.i < s.order.length && x.i !== me, okC = x => x.t === 'c' && x.i < 3;
+  const P = x => s.players[s.order[x.i]];
+  if (r === 'Werewolf' || r === 'Mason' || r === 'Drunk') {
+    if (T.length !== 1 || !okC(T[0])) throw bad('Pick a center card');
+    const c = T[0].i;
+    if (r === 'Drunk') { [p.role, s.center[c]] = [s.center[c], p.role]; p.priv.push(`You swapped with Center ${c + 1}. You don't know your new card.`); }
+    else { p.seen['c' + c] = s.center[c]; p.priv.push(`Center ${c + 1} is the ${s.center[c]}.`); }
   } else if (r === 'Seer') {
-    if (!inR(a, o.length + 1)) throw bad('Bad choice');
-    if (a < o.length) p.priv.push(`${L(o[a]).name} is the ${L(o[a]).role}.`);
-    else { const c = shuffle([0, 1, 2]); p.priv.push(`The center has the ${s.center[c[0]]} and the ${s.center[c[1]]}.`); }
+    if (T.length === 0) p.priv.push('You chose not to look.');
+    else if (T.length === 1 && okP(T[0])) { const t = P(T[0]); p.seen[T[0].k] = t.role; p.priv.push(`${t.name} is the ${t.role}.`); }
+    else if (T.length === 2 && T.every(okC) && T[0].i !== T[1].i) { T.forEach(x => p.seen[x.k] = s.center[x.i]); p.priv.push(`Center ${T[0].i + 1} is the ${s.center[T[0].i]} and Center ${T[1].i + 1} is the ${s.center[T[1].i]}.`); }
+    else throw bad('Pick one player or two center cards');
   } else if (r === 'Robber') {
-    if (!inR(a, o.length + 1)) throw bad('Bad choice');
-    if (a < o.length) { const t = L(o[a]); [p.role, t.role] = [t.role, p.role]; p.priv.push(`You robbed ${t.name}. You are now the ${p.role}.`); } else p.priv.push('You robbed nobody.');
+    if (T.length === 0) p.priv.push('You robbed nobody.');
+    else if (T.length === 1 && okP(T[0])) { const t = P(T[0]); [p.role, t.role] = [t.role, p.role]; p.seen['p' + me] = p.role; p.seen[T[0].k] = t.role; p.priv.push(`You robbed ${t.name}. You are now the ${p.role}.`); }
+    else throw bad('Pick one player');
   } else if (r === 'Troublemaker') {
-    if (!inR(a, o.length) || !inR(q, o.length) || a === q) throw bad('Pick two different players');
-    const x = L(o[a]), y = L(o[q]); [x.role, y.role] = [y.role, x.role]; p.priv.push(`You swapped ${x.name} and ${y.name}.`);
+    if (T.length === 0) p.priv.push('You swapped nobody.');
+    else if (T.length === 2 && T.every(okP) && T[0].i !== T[1].i) { const x = P(T[0]), y = P(T[1]); [x.role, y.role] = [y.role, x.role]; p.priv.push(`You swapped ${x.name} and ${y.name}.`); }
+    else throw bad('Pick two different players');
   } else throw bad('Nothing to do');
   p.acted = true;
 }
@@ -68,7 +86,7 @@ function resolve(s) {
   const h = dead.find(id => pl[id].role === 'Hunter');
   if (h && !dead.includes(pl[h].vote)) dead.push(pl[h].vote);
   const roles = dead.map(id => pl[id].role), wolves = ids.some(id => pl[id].role === 'Werewolf'), tanner = roles.includes('Tanner');
-  const village = wolves ? roles.includes('Werewolf') : dead.length === 0, wolfTeam = !village && !tanner;
+  const village = wolves ? roles.includes('Werewolf') : (dead.length === 0 || roles.every(r => r === 'Minion')), wolfTeam = !village && !tanner;
   const win = {}; ids.forEach(id => { const r = pl[id].role; win[id] = r === 'Werewolf' || r === 'Minion' ? wolfTeam : r === 'Tanner' ? tanner : village; });
   s.result = {
     text: (dead.length ? 'Dead: ' + dead.map(id => `${pl[id].name} (${pl[id].role})`).join(', ') + '. ' : 'Nobody got more than one vote, so nobody died. ') + (village ? 'The village wins.' : tanner ? 'The Tanner wins.' : 'The wolves win.'),
@@ -98,12 +116,12 @@ function advance(s, now) {               // moves the clock-driven parts of the 
 function view(s, uid) {
   const p = s.players[uid], night = s.phase === 'night', r = ORDER[s.step];
   let ask = null;
-  if (p && night && p.orig === r && !p.acted) ask = { role: r, others: s.order.filter(x => x !== uid).map(x => s.players[x].name) };
+  if (p && night && p.orig === r && !p.acted) ask = { role: r };
   return {
     phase: s.phase, dur: s.dur, deadline: s.deadline, voteBy: s.voteBy, step: night ? r : null,
     players: s.order.map(id => ({ bot: !!s.players[id].bot, name: s.players[id].name, ready: !!s.players[id].ready, voted: !!s.players[id].vote })),
-    me: p ? { orig: p.orig, priv: p.priv, ready: !!p.ready, voted: !!p.vote, win: s.result ? s.result.win[uid] : null, final: s.result ? p.role : null } : null,
-    ask, others: p && s.phase === 'vote' ? s.order.filter(x => x !== uid).map(x => s.players[x].name) : null,
+    me: p ? { seat: s.order.indexOf(uid), seen: p.seen || {}, orig: p.orig, priv: p.priv, ready: !!p.ready, voted: !!p.vote, win: s.result ? s.result.win[uid] : null, final: s.result ? p.role : null } : null,
+    ask,
     result: s.result ? { text: s.result.text, rows: s.result.rows.map(({ id, ...x }) => x), center: s.result.center } : null,
   };
 }
@@ -173,7 +191,7 @@ module.exports = async (req, res) => {
         for (let i = 0; s.order.length < MIN_PLAYERS; i++) { s.players['bot' + i] = { name: '🤖 ' + bn[i], bot: true, priv: [] }; s.order.push('bot' + i); }
         const ids = s.order, n = ids.length;
         const cards = shuffle(['Werewolf', 'Werewolf', ...shuffle(POOL).slice(0, n + 1)]);
-        ids.forEach((id, i) => Object.assign(s.players[id], { orig: cards[i], role: cards[i], ready: !!s.players[id].bot, acted: false, vote: null, priv: [] }));
+        ids.forEach((id, i) => Object.assign(s.players[id], { orig: cards[i], role: cards[i], ready: !!s.players[id].bot, acted: false, vote: null, priv: [], seen: {} }));
         Object.assign(s, { center: cards.slice(n), phase: 'deal', result: null, step: 0, dur: [3, 5, 8, 10].includes(+b.dur) ? +b.dur : 5 });
         d.clearChat = true;
       } else if (b.action === 'skip') { ref(); if (s.phase === 'day') s.deadline = now; }
@@ -189,10 +207,10 @@ module.exports = async (req, res) => {
       } else {
         const p = s.players[uid]; if (!p) throw bad('You are not in this game');
         if (b.action === 'ready' && s.phase === 'deal') p.ready = true;
-        else if (b.action === 'act') act(s, uid, b);
+        else if (b.action === 'act') act(s, uid, b.sel);
         else if (b.action === 'vote' && s.phase === 'vote') {
-          const o = s.order.filter(x => x !== uid), t = o[Math.floor(+b.a)];
-          if (!t) throw bad('Bad vote'); p.vote = t;
+          const t = s.order[Math.floor(+b.a)];
+          if (!t || t === uid) throw bad('Bad vote'); p.vote = t;
         } else throw bad('Unknown action');
       }
       advance(s, now);
