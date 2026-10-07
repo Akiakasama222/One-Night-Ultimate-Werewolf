@@ -20,7 +20,7 @@ const bad = (msg, status = 400) => Object.assign(new Error(msg), { status });
 const COPY_LATER = ['Werewolf', 'Minion', 'Mason', 'Insomniac'], COPY_NOW = ['Seer', 'Robber', 'Troublemaker', 'Drunk'];
 const wakes = (p, step) => step === 'Doppelganger' ? p.orig === 'Doppelganger' : p.orig === step || (p.orig === 'Doppelganger' && p.dop === step && COPY_LATER.includes(step));
 const eff = p => p.role === 'Doppelganger' ? (p.dop || 'Villager') : p.role; // role used for teams and win conditions
-const MAX_PLAYERS = 13; // the table always has this many seats: bots fill every empty seat when a round starts (2 Werewolves + 14 pool cards = 16 cards for 13 players)
+const MIN_PLAYERS = 3, MAX_PLAYERS = 13; // 2 Werewolves + 14 pool cards = 16 cards for 13 players
 const newState = () => ({ phase: 'lobby', players: {}, order: [], center: [], step: 0, t: 0, deadline: 0, voteBy: 0, dur: 5, result: null });
 
 // ---- game engine (pure functions on the state object) ----
@@ -40,17 +40,6 @@ function enter(s) {                      // a night step starts: info-only roles
     } else if (r === 'Troublemaker' && s.order.length < 3) { p.priv.push('Not enough players to swap anyone.'); p.acted = true; }
     else if (r === 'Insomniac') { p.seen['p' + seat(id)] = p.role; p.priv.push('Your card is now the ' + p.role + '.'); p.acted = true; }
   });
-}
-function botAct(s, id) {                 // bots pick random legal moves
-  const p0 = s.players[id], step = ORDER[s.step], r = step === 'Doppelganger' && p0.dop ? p0.dop : step, me = s.order.indexOf(id), R = k => Math.floor(Math.random() * k);
-  const others = s.order.map((_, i) => i).filter(i => i !== me), pp = () => 'p' + others.splice(R(others.length), 1)[0];
-  let sel;
-  if (r === 'Doppelganger') sel = [pp()];
-  else if (r === 'Werewolf' || r === 'Mason' || r === 'Drunk') sel = ['c' + R(3)];
-  else if (r === 'Seer') sel = R(2) ? [pp()] : ['c0', 'c' + (1 + R(2))];
-  else if (r === 'Robber') sel = [pp()];
-  else sel = [pp(), pp()];
-  try { act(s, id, sel); } catch (e) { s.players[id].acted = true; }
 }
 // sel: array of 'p<seat>' (a player, by seat number) or 'c<0-2>' (a center card)
 function act(s, id, sel) {
@@ -111,9 +100,9 @@ function resolve(s) {
 }
 function advance(s, now) {               // moves the clock-driven parts of the game forward; true if anything changed
   let ch = false;
+  if (s.phase === 'countdown' && now >= s.startAt) { s.phase = 'deal'; ch = true; }
   if (s.phase === 'deal' && s.order.length && s.order.every(id => s.players[id].ready)) { s.phase = 'night'; s.step = 0; s.t = now; enter(s); ch = true; }
   while (s.phase === 'night') {
-    s.order.forEach(id => { const p = s.players[id]; if (p.bot && wakes(p, ORDER[s.step]) && !p.acted) { botAct(s, id); if (!p.acted) botAct(s, id); } });
     const pend = s.order.some(id => wakes(s.players[id], ORDER[s.step]) && !s.players[id].acted), t = now - s.t;
     if (t < 5000 || (pend && t < 45000)) break;
     ch = true;
@@ -122,7 +111,6 @@ function advance(s, now) {               // moves the clock-driven parts of the 
   }
   if (s.phase === 'day' && now >= s.deadline) {
     s.phase = 'vote'; s.voteBy = now + 90000; ch = true;
-    s.order.forEach(id => { const p = s.players[id], o = s.order.filter(x => x !== id); if (p.bot && o.length) p.vote = o[Math.floor(Math.random() * o.length)]; });
   }
   if (s.phase === 'vote' && (s.order.length < 2 || s.order.every(id => s.players[id].vote) || now >= s.voteBy)) { resolve(s); ch = true; }
   return ch;
@@ -132,9 +120,9 @@ function view(s, uid) {
   let ask = null; const awake = !!(p && night && wakes(p, r));
   if (p && night && wakes(p, r) && !p.acted) ask = { role: r === 'Doppelganger' && p.dop ? p.dop : r };
   return {
-    phase: s.phase, dur: s.dur, deadline: s.deadline, voteBy: s.voteBy, step: awake ? r : null,
-    players: s.order.map(id => ({ bot: !!s.players[id].bot, name: s.players[id].name, ready: !!s.players[id].ready, voted: !!s.players[id].vote })),
-    me: p ? { seat: s.order.indexOf(uid), awake, seen: awake || s.phase === 'end' ? p.seen || {} : {}, orig: p.orig, priv: p.priv, ready: !!p.ready, voted: !!p.vote, win: s.result ? s.result.win[uid] : null, final: s.result ? p.role : null } : null,
+    phase: s.phase, dur: s.dur, deadline: s.deadline, voteBy: s.voteBy, startAt: s.startAt || 0, step: awake ? r : null,
+    players: s.order.map(id => ({ name: s.players[id].name, ready: !!s.players[id].ready, voted: !!s.players[id].vote })),
+    me: p ? { seat: s.order.indexOf(uid), awake, seen: awake || s.phase === 'end' ? p.seen || {} : {}, orig: s.phase === 'countdown' ? null : p.orig, priv: s.phase === 'countdown' ? [] : p.priv, ready: !!p.ready, voted: !!p.vote, win: s.result ? s.result.win[uid] : null, final: s.result ? p.role : null } : null,
     ask,
     result: s.result ? { text: s.result.text, rows: s.result.rows.map(({ id, ...x }) => x), center: s.result.center } : null,
   };
@@ -199,22 +187,19 @@ module.exports = async (req, res) => {
       if (b.action === 'start') {
         ref();
         if (!['lobby', 'end'].includes(s.phase)) throw bad('A round is already running');
-        s.order = s.order.filter(id => { if (s.players[id].bot) { delete s.players[id]; return false; } return true; });
-        if (!s.order.length) throw bad('Need at least 1 player');
-        const bn = shuffle(['Ada', 'Bram', 'Cleo', 'Dax', 'Esme', 'Finn', 'Gwen', 'Hugo', 'Iris', 'Jonah', 'Kira', 'Leo', 'Mira']);
-        for (let i = 0; s.order.length < MAX_PLAYERS; i++) { s.players['bot' + i] = { name: '🤖 ' + bn[i], bot: true, priv: [] }; s.order.push('bot' + i); }
-        s.order = shuffle(s.order); // bots and humans are seated in random order
+        if (s.order.length < MIN_PLAYERS) throw bad('Need at least ' + MIN_PLAYERS + ' players');
+        s.order = shuffle(s.order); // seats are drawn at random each round
         const ids = s.order, n = ids.length;
         const cards = shuffle(['Werewolf', 'Werewolf', ...shuffle(POOL).slice(0, n + 1)]);
-        ids.forEach((id, i) => Object.assign(s.players[id], { orig: cards[i], role: cards[i], ready: !!s.players[id].bot, acted: false, vote: null, priv: [], seen: {} }));
-        Object.assign(s, { center: cards.slice(n), phase: 'deal', result: null, step: 0, dur: [3, 5, 8, 10].includes(+b.dur) ? +b.dur : 5 });
+        ids.forEach((id, i) => Object.assign(s.players[id], { orig: cards[i], role: cards[i], ready: false, acted: false, vote: null, priv: [], seen: {} }));
+        Object.assign(s, { center: cards.slice(n), phase: 'countdown', startAt: now + 6000, result: null, step: 0, dur: [3, 5, 8, 10].includes(+b.dur) ? +b.dur : 5 });
         d.clearChat = true;
       } else if (b.action === 'skip') { ref(); if (s.phase === 'day') s.deadline = now; }
       else if (b.action === 'join') {
         if (!uid) throw bad('uid required');
         if (!s.players[uid]) {
           if (!['lobby', 'end'].includes(s.phase)) throw bad('A round is in progress. Try again when it ends.');
-          if (s.order.filter(id => !s.players[id].bot).length >= MAX_PLAYERS) throw bad('The room is full (' + MAX_PLAYERS + ' players)');
+          if (s.order.length >= MAX_PLAYERS) throw bad('The room is full (' + MAX_PLAYERS + ' players)');
           let name = clean(b.name) || 'Player', base = name, k = 2;
           while (s.order.some(id => s.players[id].name === name)) name = base.slice(0, 12) + k++;
           s.players[uid] = { name, priv: [] }; s.order.push(uid);
