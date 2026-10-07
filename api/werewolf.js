@@ -1,4 +1,3 @@
-
 // Vercel serverless function: One Night Werewolf rooms. Game state lives in MongoDB Atlas (one document per room).
 const { MongoClient } = require('mongodb');
 const URI = process.env.MONGODB_URI;
@@ -16,6 +15,7 @@ const parse = s => { try { return JSON.parse(s); } catch { return null; } };
 const clean = s => String(s || '').replace(/[<>]/g, '').trim().slice(0, 14);
 const shuffle = a => { a = [...a]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const bad = (msg, status = 400) => Object.assign(new Error(msg), { status });
+const MIN_PLAYERS = 1; // testing mode. Set back to 3 for real games
 const newState = () => ({ phase: 'lobby', players: {}, order: [], center: [], step: 0, t: 0, deadline: 0, voteBy: 0, dur: 5, result: null });
 
 // ---- game engine (pure functions on the state object) ----
@@ -25,6 +25,7 @@ function enter(s) {                      // a night step starts: info-only roles
     const p = s.players[id]; if (p.orig !== r) return;
     if (r === 'Werewolf') { const o = ws.filter(x => x !== id); if (o.length) { p.priv.push('Your fellow werewolf: ' + nm(o) + '.'); p.acted = true; } }
     else if (r === 'Minion') { p.priv.push(ws.length ? 'The werewolves are: ' + nm(ws) + '.' : 'There are no werewolves among the players.'); p.acted = true; }
+    else if (r === 'Troublemaker' && s.order.length < 3) { p.priv.push('Not enough players to swap anyone.'); p.acted = true; }
     else if (r === 'Insomniac') { p.priv.push('Your card is now the ' + p.role + '.'); p.acted = true; }
   });
 }
@@ -52,7 +53,7 @@ function act(s, id, b) {
 }
 function resolve(s) {
   const ids = s.order, pl = s.players, votes = {};
-  ids.forEach(id => { if (!pl[id].vote) { const o = ids.filter(x => x !== id); pl[id].vote = o[Math.floor(Math.random() * o.length)]; } votes[id] = 0; });
+  ids.forEach(id => { if (!pl[id].vote) { const o = ids.filter(x => x !== id); pl[id].vote = o.length ? o[Math.floor(Math.random() * o.length)] : id; } votes[id] = 0; });
   ids.forEach(id => votes[pl[id].vote]++);
   const max = Math.max(...Object.values(votes));
   const dead = max > 1 ? ids.filter(id => votes[id] === max) : [];
@@ -79,7 +80,7 @@ function advance(s, now) {               // moves the clock-driven parts of the 
     s.step++; s.t = now; enter(s);
   }
   if (s.phase === 'day' && now >= s.deadline) { s.phase = 'vote'; s.voteBy = now + 90000; ch = true; }
-  if (s.phase === 'vote' && (s.order.every(id => s.players[id].vote) || now >= s.voteBy)) { resolve(s); ch = true; }
+  if (s.phase === 'vote' && (s.order.length < 2 || s.order.every(id => s.players[id].vote) || now >= s.voteBy)) { resolve(s); ch = true; }
   return ch;
 }
 function view(s, uid) {
@@ -155,7 +156,7 @@ module.exports = async (req, res) => {
         ref();
         if (!['lobby', 'end'].includes(s.phase)) throw bad('A round is already running');
         const ids = s.order, n = ids.length;
-        if (n < 3) throw bad('Need at least 3 players');
+        if (n < MIN_PLAYERS) throw bad(`Need at least ${MIN_PLAYERS} players`);
         const cards = shuffle(['Werewolf', 'Werewolf', ...shuffle(POOL).slice(0, n + 1)]);
         ids.forEach((id, i) => Object.assign(s.players[id], { orig: cards[i], role: cards[i], ready: false, acted: false, vote: null, priv: [] }));
         Object.assign(s, { center: cards.slice(n), phase: 'deal', result: null, step: 0, dur: [3, 5, 8, 10].includes(+b.dur) ? +b.dur : 5 });
