@@ -15,7 +15,7 @@ const parse = s => { try { return JSON.parse(s); } catch { return null; } };
 const clean = s => String(s || '').replace(/[<>]/g, '').trim().slice(0, 14);
 const shuffle = a => { a = [...a]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const bad = (msg, status = 400) => Object.assign(new Error(msg), { status });
-const MIN_PLAYERS = 1; // testing mode. Set back to 3 for real games
+const MIN_PLAYERS = 3; // bots fill empty seats up to this number when a round starts
 const newState = () => ({ phase: 'lobby', players: {}, order: [], center: [], step: 0, t: 0, deadline: 0, voteBy: 0, dur: 5, result: null });
 
 // ---- game engine (pure functions on the state object) ----
@@ -28,6 +28,14 @@ function enter(s) {                      // a night step starts: info-only roles
     else if (r === 'Troublemaker' && s.order.length < 3) { p.priv.push('Not enough players to swap anyone.'); p.acted = true; }
     else if (r === 'Insomniac') { p.priv.push('Your card is now the ' + p.role + '.'); p.acted = true; }
   });
+}
+function botAct(s, id) {                 // bots pick random legal moves
+  const r = ORDER[s.step], n = s.order.length - 1, R = k => Math.floor(Math.random() * k);
+  let a = 0, b;
+  if (r === 'Werewolf' || r === 'Drunk') a = R(3);
+  else if (r === 'Seer' || r === 'Robber') a = R(n + 1);
+  else { a = R(n); do b = R(n); while (b === a); }
+  try { act(s, id, { a, b }); } catch (e) { s.players[id].acted = true; }
 }
 function act(s, id, b) {
   const p = s.players[id], r = ORDER[s.step];
@@ -73,13 +81,17 @@ function advance(s, now) {               // moves the clock-driven parts of the 
   let ch = false;
   if (s.phase === 'deal' && s.order.length && s.order.every(id => s.players[id].ready)) { s.phase = 'night'; s.step = 0; s.t = now; enter(s); ch = true; }
   while (s.phase === 'night') {
+    s.order.forEach(id => { const p = s.players[id]; if (p.bot && p.orig === ORDER[s.step] && !p.acted) botAct(s, id); });
     const pend = s.order.some(id => s.players[id].orig === ORDER[s.step] && !s.players[id].acted), t = now - s.t;
     if (t < 3000 || (pend && t < 45000)) break;
     ch = true;
     if (s.step === ORDER.length - 1) { s.phase = 'day'; s.deadline = now + s.dur * 60000; break; }
     s.step++; s.t = now; enter(s);
   }
-  if (s.phase === 'day' && now >= s.deadline) { s.phase = 'vote'; s.voteBy = now + 90000; ch = true; }
+  if (s.phase === 'day' && now >= s.deadline) {
+    s.phase = 'vote'; s.voteBy = now + 90000; ch = true;
+    s.order.forEach(id => { const p = s.players[id], o = s.order.filter(x => x !== id); if (p.bot && o.length) p.vote = o[Math.floor(Math.random() * o.length)]; });
+  }
   if (s.phase === 'vote' && (s.order.length < 2 || s.order.every(id => s.players[id].vote) || now >= s.voteBy)) { resolve(s); ch = true; }
   return ch;
 }
@@ -89,7 +101,7 @@ function view(s, uid) {
   if (p && night && p.orig === r && !p.acted) ask = { role: r, others: s.order.filter(x => x !== uid).map(x => s.players[x].name) };
   return {
     phase: s.phase, dur: s.dur, deadline: s.deadline, voteBy: s.voteBy, step: night ? r : null,
-    players: s.order.map(id => ({ name: s.players[id].name, ready: !!s.players[id].ready, voted: !!s.players[id].vote })),
+    players: s.order.map(id => ({ bot: !!s.players[id].bot, name: s.players[id].name, ready: !!s.players[id].ready, voted: !!s.players[id].vote })),
     me: p ? { orig: p.orig, priv: p.priv, ready: !!p.ready, voted: !!p.vote, win: s.result ? s.result.win[uid] : null, final: s.result ? p.role : null } : null,
     ask, others: p && s.phase === 'vote' ? s.order.filter(x => x !== uid).map(x => s.players[x].name) : null,
     result: s.result ? { text: s.result.text, rows: s.result.rows.map(({ id, ...x }) => x), center: s.result.center } : null,
@@ -155,10 +167,13 @@ module.exports = async (req, res) => {
       if (b.action === 'start') {
         ref();
         if (!['lobby', 'end'].includes(s.phase)) throw bad('A round is already running');
+        s.order = s.order.filter(id => { if (s.players[id].bot) { delete s.players[id]; return false; } return true; });
+        if (!s.order.length) throw bad('Need at least 1 player');
+        const bn = shuffle(['Ada', 'Bram', 'Cleo', 'Dax', 'Esme', 'Finn']);
+        for (let i = 0; s.order.length < MIN_PLAYERS; i++) { s.players['bot' + i] = { name: '🤖 ' + bn[i], bot: true, priv: [] }; s.order.push('bot' + i); }
         const ids = s.order, n = ids.length;
-        if (n < MIN_PLAYERS) throw bad(`Need at least ${MIN_PLAYERS} players`);
         const cards = shuffle(['Werewolf', 'Werewolf', ...shuffle(POOL).slice(0, n + 1)]);
-        ids.forEach((id, i) => Object.assign(s.players[id], { orig: cards[i], role: cards[i], ready: false, acted: false, vote: null, priv: [] }));
+        ids.forEach((id, i) => Object.assign(s.players[id], { orig: cards[i], role: cards[i], ready: !!s.players[id].bot, acted: false, vote: null, priv: [] }));
         Object.assign(s, { center: cards.slice(n), phase: 'deal', result: null, step: 0, dur: [3, 5, 8, 10].includes(+b.dur) ? +b.dur : 5 });
         d.clearChat = true;
       } else if (b.action === 'skip') { ref(); if (s.phase === 'day') s.deadline = now; }
