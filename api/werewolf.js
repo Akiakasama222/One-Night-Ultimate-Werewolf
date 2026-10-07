@@ -165,7 +165,7 @@ module.exports = async (req, res) => {
       else if (b.action === 'join') {
         if (!uid) throw bad('uid required');
         if (!s.players[uid]) {
-          if (s.phase !== 'lobby') throw bad('That game has already started');
+          if (!['lobby', 'end'].includes(s.phase)) throw bad('A round is in progress. Try again when it ends.');
           if (s.order.length >= 10) throw bad('The room is full (10 players)');
           let name = clean(b.name) || 'Player', base = name, k = 2;
           while (s.order.some(id => s.players[id].name === name)) name = base.slice(0, 12) + k++;
