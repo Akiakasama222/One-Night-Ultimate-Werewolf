@@ -119,7 +119,7 @@ function tick(){
   if(!end){el.textContent='';return}
   const s=Math.max(0,Math.round((end-(Date.now()+skew))/1000));el.textContent=`${s/60|0}:${String(s%60).padStart(2,'0')}`;
 }
-const phaseText=()=>({lobby:'Waiting for the host to start',deal:'Look at your card',night:`Night: the ${V.step} wakes…`,day:'Day: talk about the night!',vote:'Vote!',end:'Results'}[V.phase]);
+const phaseText=()=>({lobby:'Waiting for the host to start',deal:'Look at your card',night:'Night',day:'Day: talk about the night!',vote:'Vote!',end:'Results'}[V.phase]);
 const logHtml=()=>{
   const priv=(V.me&&V.me.orig?[`Your starting role: ${V.me.orig}. ${ROLES[V.me.orig][1]}`,...V.me.priv]:[]).map(t=>`<div class="priv">${esc(t)}</div>`);
   return priv.join('')+V.chat.map(c=>`<div><b>${esc(c.from)}:</b> ${esc(c.text)}</div>`).join('');
@@ -129,7 +129,7 @@ function post(body){return api('POST',body).then(j=>{Object.assign(V,j);render()
 /* ---------- ROUND TABLE ---------- */
 function knownMap(){
   if(V.phase==='end'&&V.result){const k={};V.result.rows.forEach((r,i)=>k['p'+i]=r.role);V.result.center.forEach((c,i)=>k['c'+i]=c);return k}
-  return V.me&&V.me.seen||{};
+  return V.phase==='night'&&V.me&&V.me.awake?V.me.seen||{}:{};
 }
 function tableHtml(click){
   const N=V.players.length,seat=V.me?V.me.seat:0,cards=V.phase!=='lobby',known=knownMap(),ph=V.phase;
@@ -164,7 +164,7 @@ function renderHost(){
     <p>Discussion time <select id="d">${[3,5,8,10].map(x=>`<option value="${x}" ${x===dur?'selected':''}>${x} min</option>`).join('')}</select></p>
     <button class="primary" id="go" ${hum<1?'disabled':''}>${V.phase==='end'?'Play again':'Start game'}${hum<1?' (waiting for a player)':''}</button>${hum>0&&hum<3?'<p class="mute">Fewer than 3 players: bots will fill the empty seats.</p>':''}`;
   }else{
-    const c=V.phase==='deal'?`${V.players.filter(p=>p.ready).length}/${n} players have hidden their card.`:V.phase==='vote'?`${V.players.filter(p=>p.voted).length}/${n} votes in.`:V.phase==='night'?'Everyone keeps their eyes closed.':'';
+    const c=V.phase==='deal'?`${V.players.filter(p=>p.ready).length}/${n} players have hidden their card.`:V.phase==='vote'?`${V.players.filter(p=>p.voted).length}/${n} votes in.`:V.phase==='night'?'Everyone keeps their eyes closed unless woken.':'';
     h+=`<h2>${esc(phaseText())}</h2><div class="big" id="cd"></div><p class="mute">${c}</p><div class="table">${tableHtml(false)}</div>`;
     if(V.phase==='day'||V.phase==='vote')h+=`<div class="log">${V.chat.map(x=>`<div><b>${esc(x.from)}:</b> ${esc(x.text)}</div>`).join('')||'<span class="mute">No messages yet.</span>'}</div>`;
     if(V.phase==='day')h+=`<button class="primary" id="sk">Start the vote now</button>`;
@@ -221,7 +221,7 @@ function renderPlayer(){
   else if(ph==='lobby')h=`<p class="mute">Players: ${V.players.map(p=>esc(p.name)).join(', ')||'none yet'}</p>`;
   else if(ph==='deal')h=!me.orig?'<p class="mute">Round starting…</p>':me.ready?'<p class="mute">Card hidden. Waiting for the others…</p>':`<div class="bigc">${face(me.orig)}</div><p><b>${me.orig}</b><br>${esc(ROLES[me.orig][1])}</p><button class="primary" id="hide">Hide my card</button>`;
   else if(ph==='night'&&V.ask)h=`<h2>${V.ask.role}</h2><p class="mute">${HELP[V.ask.role]}</p><p>Selected: <b>${selText()}</b></p><button class="primary" id="ok" ${valid()?'':'disabled'}>Confirm</button>${SKIP[V.ask.role]?'<button id="skip">Do nothing</button>':''}`;
-  else if(ph==='night')h='<p class="mute">Eyes closed. Wait for morning.</p>';
+  else if(ph==='night')h=me.awake?'<p>You are awake. Look at the table.</p>':'<p class="mute">Eyes closed. Wait for morning.</p>';
   else if(ph==='day')h='<p class="mute">Talk it out in the chat. Tap a face-up card to look closer.</p>';
   else if(ph==='vote')h=me.voted?'<p class="mute">Vote cast. Waiting for the others…</p>':`<h2>Who do you vote to kill?</h2><p class="mute">Tap a player's card on the table.</p><p>Selected: <b>${selText()}</b></p><button class="primary" id="ok" ${valid()?'':'disabled'}>Cast vote</button>`;
   else if(ph==='end'){const r=V.result;h=`${me.orig?`<div class="big">${me.win?'You win':'You lose'}</div>`:'<p>You joined after the round. You\'ll get a card in the next one.</p>'}<p>${esc(r.text)}</p><div class="grid">${r.rows.map(x=>`<div class="row ${x.dead?'dead':''}"><b>${esc(x.name)}</b>: ${ROLES[x.orig][0]} ${x.orig} → ${ROLES[x.role][0]} ${x.role}<br><span class="mute">${x.votes} votes · voted ${esc(x.voted)}</span></div>`).join('')}<div class="row"><b>Center</b>: ${r.center.map(c=>ROLES[c][0]+' '+c).join(', ')}</div></div><p class="mute">The host can start another round.</p>`}
