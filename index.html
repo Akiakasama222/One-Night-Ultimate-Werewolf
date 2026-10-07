@@ -76,6 +76,7 @@ dialog::backdrop{background:#0d1122cc}
 <main id="m"></main>
 <div class="tools"><button id="ob" hidden>🎛️ Operator page</button><button id="sb" aria-pressed="false">🔇 Sound off</button><button id="rb" aria-label="Show all roles">📖 Roles</button></div>
 <dialog id="rd"></dialog>
+<dialog id="nd"><h2>Join as a player</h2><p class="mute sub">You will get a card like everyone else. Switch back to the Operator page any time with the 🎛️ button.</p><label>Your name<input id="nn" maxlength="14" autocomplete="nickname"></label><p id="ne" class="mute sub"></p><div class="hd"><button class="primary" id="ny">Join</button><button id="nc">Cancel</button></div></dialog>
 <script>
 const ROLES={Doppelganger:['👥','Look at another player\'s card and become that role. If it has a night action, do it now. Your team is the team of the role you copied.'],Werewolf:['🐺','Wolf team. You know your fellow wolf. A lone wolf may peek at a center card.'],Minion:['🎭','Wolf team. You know the wolves; they don\'t know you.'],Mason:['🧔','Village. You know the other Mason. A lone Mason may peek at a center card.'],Seer:['🔮','Village. Look at one player\'s card, or two center cards.'],Robber:['🗡️','Village. Swap with another player and see your new card.'],Troublemaker:['🌀','Village. Swap two other players\' cards.'],Drunk:['🍺','Village. Swap with a center card without looking.'],Insomniac:['🌙','Village. You see your card again at the end of the night.'],Hunter:['🏹','Village. If you die, whoever you voted for dies too.'],Tanner:['🪢','You win only if you die.'],Villager:['🏡','Village. No power. Use your wits.']};
 const FILE={Troublemaker:'TroubleMaker',Doppelganger:'Doppleganger'}, COLORS=['#4f6bff','#ff5256','#3fc27b','#f2b84b','#b36bff','#2fc4d6','#ff8a3d','#e86bb7','#9ad24a','#c9a37a'];
@@ -124,12 +125,19 @@ function landing(){
 }
 const unstore=k=>{try{localStorage.removeItem(k)}catch(e){}};
 function swapBtn(){
-  const b=$('#ob');b.hidden=isHost&&!wasPlayer;b.textContent=isHost?'👤 My player view':'🎛️ Operator page';
+  const b=$('#ob');b.hidden=false;b.textContent=isHost?(wasPlayer?'👤 My player view':'👤 Play too'):'🎛️ Operator page';
   b.onclick=()=>{
-    if(isHost){unstore('wwHost_'+ROOM);enter(false)}
+    if(isHost&&!wasPlayer){$('#nn').value=load('wwName')||'';$('#ne').textContent='';$('#nd').showModal();$('#nn').focus()}
+    else if(isHost){unstore('wwHost_'+ROOM);enter(false)}
     else{store('wwHost_'+ROOM,'1');store('wwPlayer_'+ROOM,'1');wasPlayer=true;enter(true)}
   };
 }
+async function joinAsHost(){
+  const nm=$('#nn').value.trim();if(!nm){$('#ne').textContent='Enter your name.';return}
+  try{await api('POST',{action:'join',name:nm});store('wwName',nm);name=nm;store('wwPlayer_'+ROOM,'1');wasPlayer=true;unstore('wwHost_'+ROOM);$('#nd').close();enter(false)}
+  catch(e){$('#ne').textContent=e.message}
+}
+$('#ny').onclick=joinAsHost;$('#nc').onclick=()=>$('#nd').close();$('#nn').onkeydown=e=>{if(e.key==='Enter')joinAsHost()};
 function enter(host){
   isHost=host;history.replaceState(null,'','?room='+ROOM);sig=logSig='';V=null;
   host?buildHost():buildPlayer();swapBtn();poll();clearInterval(timer);timer=setInterval(poll,1500);tk=tk||setInterval(tick,500);
