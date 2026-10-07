@@ -20,7 +20,7 @@ const bad = (msg, status = 400) => Object.assign(new Error(msg), { status });
 const COPY_LATER = ['Werewolf', 'Minion', 'Mason', 'Insomniac'], COPY_NOW = ['Seer', 'Robber', 'Troublemaker', 'Drunk'];
 const wakes = (p, step) => step === 'Doppelganger' ? p.orig === 'Doppelganger' : p.orig === step || (p.orig === 'Doppelganger' && p.dop === step && COPY_LATER.includes(step));
 const eff = p => p.role === 'Doppelganger' ? (p.dop || 'Villager') : p.role; // role used for teams and win conditions
-const MIN_PLAYERS = 3; // bots fill empty seats up to this number when a round starts
+const MAX_PLAYERS = 13; // the table always has this many seats: bots fill every empty seat when a round starts (2 Werewolves + 14 pool cards = 16 cards for 13 players)
 const newState = () => ({ phase: 'lobby', players: {}, order: [], center: [], step: 0, t: 0, deadline: 0, voteBy: 0, dur: 5, result: null });
 
 // ---- game engine (pure functions on the state object) ----
@@ -201,8 +201,9 @@ module.exports = async (req, res) => {
         if (!['lobby', 'end'].includes(s.phase)) throw bad('A round is already running');
         s.order = s.order.filter(id => { if (s.players[id].bot) { delete s.players[id]; return false; } return true; });
         if (!s.order.length) throw bad('Need at least 1 player');
-        const bn = shuffle(['Ada', 'Bram', 'Cleo', 'Dax', 'Esme', 'Finn']);
-        for (let i = 0; s.order.length < MIN_PLAYERS; i++) { s.players['bot' + i] = { name: '🤖 ' + bn[i], bot: true, priv: [] }; s.order.push('bot' + i); }
+        const bn = shuffle(['Ada', 'Bram', 'Cleo', 'Dax', 'Esme', 'Finn', 'Gwen', 'Hugo', 'Iris', 'Jonah', 'Kira', 'Leo', 'Mira']);
+        for (let i = 0; s.order.length < MAX_PLAYERS; i++) { s.players['bot' + i] = { name: '🤖 ' + bn[i], bot: true, priv: [] }; s.order.push('bot' + i); }
+        s.order = shuffle(s.order); // bots and humans are seated in random order
         const ids = s.order, n = ids.length;
         const cards = shuffle(['Werewolf', 'Werewolf', ...shuffle(POOL).slice(0, n + 1)]);
         ids.forEach((id, i) => Object.assign(s.players[id], { orig: cards[i], role: cards[i], ready: !!s.players[id].bot, acted: false, vote: null, priv: [], seen: {} }));
@@ -213,7 +214,7 @@ module.exports = async (req, res) => {
         if (!uid) throw bad('uid required');
         if (!s.players[uid]) {
           if (!['lobby', 'end'].includes(s.phase)) throw bad('A round is in progress. Try again when it ends.');
-          if (s.order.length >= 10) throw bad('The room is full (10 players)');
+          if (s.order.filter(id => !s.players[id].bot).length >= MAX_PLAYERS) throw bad('The room is full (' + MAX_PLAYERS + ' players)');
           let name = clean(b.name) || 'Player', base = name, k = 2;
           while (s.order.some(id => s.players[id].name === name)) name = base.slice(0, 12) + k++;
           s.players[uid] = { name, priv: [] }; s.order.push(uid);
