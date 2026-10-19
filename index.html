@@ -30,6 +30,7 @@ label{display:block;margin:8px 0}
 #cd{color:var(--moon);font-weight:700;text-align:center;min-height:1.4em}
 .log{height:34vh;min-height:160px;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px;display:grid;gap:6px;align-content:start}
 .log div{background:#1d2347;border-left:3px solid var(--moon);border-radius:8px;padding:5px 10px;word-break:break-word}
+.log .news{background:#2a2f5e;border-left-color:#fff;font-weight:700}
 .log .priv{border-left-color:var(--blood);font-style:italic}
 #cf{display:flex;gap:8px}
 .table{position:relative;width:100%;aspect-ratio:1;container-type:inline-size}
@@ -63,6 +64,7 @@ dialog::backdrop{background:#0d1122cc}
 .rl{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}
 .rl p{margin:2px 0 0}.rl b{font:600 18px Fraunces,Georgia,serif}
 .rt{--w:72px;position:relative;width:72px;aspect-ratio:2/3;flex:none}.rt small{display:none}
+.opt{border-radius:20px;padding:4px 12px}.opt[aria-pressed=false]{opacity:.45;text-decoration:line-through}
 .hd{display:flex;justify-content:space-between;align-items:center;gap:10px}
 #act{display:grid;gap:8px;text-align:center}
 .grid{display:grid;gap:8px;text-align:left}
@@ -77,22 +79,29 @@ dialog::backdrop{background:#0d1122cc}
 <div class="tools"><button id="ob" hidden>🎛️ Operator page</button><button id="sb" aria-pressed="false">🔇 Sound off</button><button id="rb" aria-label="Show all roles">📖 Roles</button></div>
 <dialog id="rd"></dialog>
 <dialog id="nd"><h2>Join as a player</h2><p class="mute sub">You will get a card like everyone else. Switch back to the Operator page any time with the 🎛️ button.</p><label>Your name<input id="nn" maxlength="14" autocomplete="nickname"></label><p id="ne" class="mute sub"></p><div class="hd"><button class="primary" id="ny">Join</button><button id="nc">Cancel</button></div></dialog>
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="engine.js"></script>
 <script>
-const ROLES={Doppelganger:['👥','Look at another player\'s card and become that role. If it has a night action, do it now. Your team is the team of the role you copied.'],Werewolf:['🐺','Wolf team. You know your fellow wolf. A lone wolf may peek at a center card.'],Minion:['🎭','Wolf team. You know the wolves; they don\'t know you.'],Mason:['🧔','Village. You know the other Mason. A lone Mason may peek at a center card.'],Seer:['🔮','Village. Look at one player\'s card, or two center cards.'],Robber:['🗡️','Village. Swap with another player and see your new card.'],Troublemaker:['🌀','Village. Swap two other players\' cards.'],Drunk:['🍺','Village. Swap with a center card without looking.'],Insomniac:['🌙','Village. You see your card again at the end of the night.'],Hunter:['🏹','Village. If you die, whoever you voted for dies too.'],Tanner:['🪢','You win only if you die.'],Villager:['🏡','Village. No power. Use your wits.']};
+const ROLES={Mafia:['🕴️','Mafia team. Each night, pick a victim. You win when the Mafia is the last team standing.'],Detective:['🕵️','Village. Each night, look at another player\'s card.'],Doctor:['🩺','Village. Each night, pick a player to protect from being killed.'],Angel:['😇','Village. You wake first each night, if someone has fallen. Bring one of them back to life; they won\'t know it was you.'],Doppelganger:['👥','Look at another player\'s card and become that role. If it has a night action, do it now. Your team is the team of the role you copied.'],Werewolf:['🐺','Wolf team. You know your fellow wolf. A lone wolf may peek at a center card.'],Minion:['🎭','Wolf team. You know the wolves; they don\'t know you.'],Mason:['🧔','Village. You know the other Mason. A lone Mason may peek at a center card.'],Seer:['🔮','Village. Look at one player\'s card, or two center cards.'],Robber:['🗡️','Village. Swap with another player and see your new card.'],Troublemaker:['🌀','Village. Swap two other players\' cards.'],Drunk:['🍺','Village. Swap with a center card without looking.'],Insomniac:['🌙','Village. You see your card again at the end of the night.'],Hunter:['🏹','Village. If you die, whoever you voted for dies too.'],Tanner:['🪢','You win only if you die.'],Villager:['🏡','Village. No power. Use your wits.']};
 const FILE={Troublemaker:'TroubleMaker',Doppelganger:'Doppleganger'}, COLORS=['#4f6bff','#ff5256','#3fc27b','#f2b84b','#b36bff','#2fc4d6','#ff8a3d','#e86bb7','#9ad24a','#c9a37a'];
 const NOERR="onerror=\"this.parentNode.classList.add('noimg')\"";
 const face=r=>`<span class="face"><img src="assets/${FILE[r]||r}.png" alt="${r}" ${NOERR}><span class="fb">${ROLES[r][0]}<small>${r}</small></span></span>`;
 const back=()=>`<span class="face back"><img src="assets/CardBack.png" alt="Hidden card" ${NOERR}><span class="fb">🌙</span></span>`;
-const HELP={Doppelganger:'Tap another player\'s card to copy their role.',Werewolf:'You are alone. Tap one center card to peek at.',Mason:'You are alone. Tap one center card to peek at.',Drunk:'Tap the center card to swap with. You won\'t see it.',Seer:'Tap one player\'s card, or two center cards.',Robber:'Tap the player to rob.',Troublemaker:'Tap two other players to swap.'};
-const SKIP={Seer:1,Robber:1,Troublemaker:1};
+const HELPS={Doppelganger:'Tap another player\'s card to copy their role.',Werewolf:'You are alone. Tap one center card to peek at.',Mason:'You are alone. Tap one center card to peek at.',Drunk:'Tap the center card to swap with. You won\'t see it.',Seer:'Tap one player\'s card, or two center cards.',Robber:'Tap the player to rob.',Troublemaker:'Tap two other players to swap.',Detective:'Tap a player to look at their card.',Doctor:'Tap a player to protect tonight. You may pick yourself.',Angel:'Tap a fallen player to bring back to life. They won\'t know it was you.'};
+const HELP=r=>multi()&&(r==='Werewolf'||r==='Mafia')?'Tap the player you want to kill tonight.':HELPS[r];
+const SKIP={Seer:1,Robber:1,Troublemaker:1,Detective:1,Doctor:1,Angel:1};
+const multi=()=>!!V&&V.mode==='multi';
+const MD={Doppelganger:'Each night, copy another player\'s card and act as that role. Your team is the team of the role you copied last.',Werewolf:'Werewolf team. Each night, see your fellow wolves and pick a victim (the most-picked victim dies). Win by being the last team standing.',Mafia:'Mafia team. Each night, see your fellow mafia and pick a victim (the most-picked victim dies). Win by being the last team standing.',Mason:'Village. Each night, see the other Masons. A lone Mason may peek at a center card.',Seer:'Village. Each night, look at one player\'s card, or two center cards.',Robber:'Village. Each night, swap with another player and see your new card.',Troublemaker:'Village. Each night, swap two other players\' cards.',Drunk:'Village. Each night, swap with a center card without looking.',Hunter:'Village. If you die, the player you last voted for dies too.',Villager:'Village. No power. Win when every werewolf and mafia member is dead.'};
+const desc=r=>multi()&&MD[r]||ROLES[r][1];
 const $=s=>document.querySelector(s), m=$('#m');
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let uid;try{uid=localStorage.getItem('wwuid')}catch(e){}
 if(!uid){uid='u'+Math.random().toString(36).slice(2,10);try{localStorage.setItem('wwuid',uid)}catch(e){}}
-const TEAM={Werewolf:'Wolf team',Minion:'Wolf team',Tanner:'Own team',Doppelganger:'Team of the role it copies'};
+const TEAM={Werewolf:'Wolf team',Minion:'Wolf team',Mafia:'Mafia team',Tanner:'Own team',Doppelganger:'Team of the role it copies'};
 function roleList(){
-  const order=['Doppelganger','Werewolf','Minion','Mason','Seer','Robber','Troublemaker','Drunk','Insomniac','Hunter','Tanner','Villager'];
-  $('#rd').innerHTML=`<div class="hd"><h2>All roles</h2><button id="rx" autofocus>Close</button></div><p class="mute sub">Night order: Doppelganger, Werewolf, Minion, Mason, Seer, Robber, Troublemaker, Drunk, Insomniac. Each game uses 2 Werewolves plus a random mix of the rest; 3 cards stay in the center.</p>`+order.map(r=>`<div class="rl"><div class="rt">${face(r)}</div><div><b>${r}</b> <span class="mute sub">${TEAM[r]||'Village team'}</span><p>${esc(ROLES[r][1])}</p></div></div>`).join('');
+  const mu=multi(),order=mu?['Doppelganger','Werewolf','Mafia','Mason','Seer','Detective','Robber','Troublemaker','Drunk','Doctor','Angel','Hunter','Villager']:['Doppelganger','Werewolf','Minion','Mason','Seer','Robber','Troublemaker','Drunk','Insomniac','Hunter','Tanner','Villager'];
+  const intro=mu?'Werewolf × Mafia: several nights. Three teams: Village, Werewolves and Mafia. Every night the wolves and the mafia each pick a victim, the Doctor can save one player, then the village votes someone out. The last team standing wins. Night order: Angel (only if someone has fallen), Doppelganger, Werewolf, Mafia, Mason, Seer, Detective, Robber, Troublemaker, Drunk, Doctor. A player the Angel revives can act the same night. Each night you act as the card you start it with.':'Night order: Doppelganger, Werewolf, Minion, Mason, Seer, Robber, Troublemaker, Drunk, Insomniac. Each game uses 2 Werewolves plus a random mix of the rest; 3 cards stay in the center.';
+  $('#rd').innerHTML=`<div class="hd"><h2>All roles</h2><button id="rx" autofocus>Close</button></div><p class="mute sub">${intro}</p>`+order.map(r=>{const off=V&&(V.off||[]).includes(r);return `<div class="rl"><div class="rt">${face(r)}</div><div style="${off?'opacity:.45':''}"><b>${r}</b> <span class="mute sub">${off?'Not in this game':TEAM[r]||'Village team'}</span><p>${esc(desc(r))}</p></div></div>`}).join('');
   $('#rx').onclick=()=>$('#rd').close();$('#rd').showModal();
 }
 $('#rb').onclick=roleList;$('#rd').onclick=e=>{if(e.target===e.currentTarget)e.currentTarget.close()};
@@ -100,10 +109,82 @@ let lastSec=-1,lastPh='',sel=[],peek=null,selKey='',ROOM='',isHost=false,wasPlay
 const store=(k,v)=>{try{v===undefined?localStorage.getItem(k):localStorage.setItem(k,v)}catch(e){}};
 const load=k=>{try{return localStorage.getItem(k)}catch(e){return null}};
 
+/* ---------- NETWORK: no server. The host's browser runs the game (engine.js) and players connect to it directly with WebRTC (PeerJS) ---------- */
+const PREFIX='onenight-werewolf-';
+let room=null,peer=null,conn=null,pending={},rid=0,hostConns=new Set(),hostTimer=null,rcTimer=null;
+const unstore=k=>{try{localStorage.removeItem(k)}catch(e){}};
+const hostSave=()=>{try{localStorage.setItem('wwRoom_'+ROOM,JSON.stringify(room))}catch(e){}};
+function hostBroadcast(){const now=Date.now();hostConns.forEach(c=>{if(c.open&&c.uid)try{c.send({t:'view',view:Engine.viewOf(room,c.uid,now)})}catch(e){}})}
+function hostMsg(c,m){                    // a player's request arrives at the host
+  if(!m||m.t!=='req')return;
+  const b=m.body||{},u=String(b.uid||'').replace(/[^A-Za-z0-9_-]/g,'').slice(0,24);c.uid=u;hostConns.add(c);
+  try{
+    const now=Date.now();Engine.handle(room,u,b,now,false);
+    c.send({t:'res',rid:m.rid,view:Engine.viewOf(room,u,now)});
+    if(b.action!=='poll'){hostSave();hostBroadcast();if(V)poll()}
+  }catch(e){c.send({t:'res',rid:m.rid,error:e.message})}
+}
+async function keepAwake(){try{if(!('wakeLock' in navigator))return;await navigator.wakeLock.request('screen');document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')navigator.wakeLock.request('screen').catch(()=>{})})}catch(e){}}
+function hostStart(code,restored){
+  return new Promise((res,rej)=>{
+    const p=new Peer(PREFIX+code);let opened=false;
+    p.on('open',()=>{opened=true;peer=p;room=restored||Engine.create(uid);room.hostUid=uid;ROOM=code;
+      p.on('connection',c=>{c.on('data',m=>hostMsg(c,m));c.on('close',()=>hostConns.delete(c));c.on('error',()=>hostConns.delete(c))});
+      clearInterval(hostTimer);hostTimer=setInterval(()=>{if(Engine.tick(room,Date.now())){hostSave();hostBroadcast();if(V)poll()}},500);
+      keepAwake();res()});
+    p.on('error',e=>{if(!opened){try{p.destroy()}catch(x){}rej(e)}});
+    p.on('disconnected',()=>{if(opened)try{p.reconnect()}catch(e){}});
+  });
+}
+async function createRoom(){
+  for(let i=0;i<8;i++){
+    const code=Array.from({length:4},()=>'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random()*32)]).join('');
+    try{await hostStart(code);return code}catch(e){if(e.type!=='unavailable-id')throw new Error('Could not reach the matchmaking service ('+(e.type||e.message)+'). Check your connection and try again.')}
+  }
+  throw new Error('Could not create a room, please try again.');
+}
+async function restoreHost(code,saved){           // after a refresh the old session may still be registered for a few seconds
+  for(let i=0;i<20;i++){try{return await hostStart(code,saved)}catch(e){if(e.type!=='unavailable-id')throw e;await new Promise(r=>setTimeout(r,2000))}}
+  throw new Error('Could not restore the room.');
+}
+function connectHost(code){
+  return new Promise((res,rej)=>{
+    try{peer&&peer.destroy()}catch(e){}
+    const p=new Peer();peer=p;let done=false;const fail=e=>{if(!done){done=true;rej(e)}};
+    setTimeout(()=>fail(new Error('Could not connect to the host. Check the room code and that the host still has the game open.')),15000);
+    p.on('error',e=>fail(new Error(e.type==='peer-unavailable'?'Room not found. Check the code, and make sure the host still has the game open.':'Connection problem ('+e.type+').')));
+    p.on('disconnected',()=>{try{p.reconnect()}catch(e){}});
+    p.on('open',()=>{
+      const c=p.connect(PREFIX+code,{reliable:true});
+      c.on('open',()=>{conn=c;done=true;res()});
+      c.on('data',m=>{
+        if(m.t==='res'){const f=pending[m.rid];if(f){delete pending[m.rid];m.error?f.rej(new Error(m.error)):f.res(m.view)}}
+        else if(m.t==='view'){V=m.view;skew=m.view.now-Date.now();err('');render()}
+      });
+      c.on('close',()=>{conn=null;lost()});
+    });
+  });
+}
+function lost(){                          // the host went away: keep trying to reach it again
+  if(room||!ROOM)return;err('⚠️ Connection lost. Reconnecting…');clearTimeout(rcTimer);
+  const retry=async()=>{try{await connectHost(ROOM);await remote({action:'join',name,uid});poll()}catch(e){rcTimer=setTimeout(retry,3000)}};
+  rcTimer=setTimeout(retry,1500);
+}
+function remote(body){
+  return new Promise((res,rej)=>{
+    if(!conn||!conn.open)return rej(new Error('Reconnecting to the host…'));
+    const id=++rid;pending[id]={res,rej};conn.send({t:'req',rid:id,body:{...body,uid}});
+    setTimeout(()=>{if(pending[id]){delete pending[id];rej(new Error('The host is not responding'))}},8000);
+  });
+}
 async function api(method,body){
-  const r=await fetch(method==='GET'?`/api/werewolf?room=${ROOM}&uid=${uid}`:'/api/werewolf',method==='GET'?{cache:'no-store'}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uid,room:ROOM,...body})});
-  const j=await r.json().catch(()=>({error:'Server error '+r.status}));
-  if(!r.ok)throw new Error(j.error||'Error '+r.status);return j;
+  const b=method==='GET'?{action:'poll'}:body;
+  if(room){                               // this device is the host: no network needed
+    const now=Date.now();Engine.handle(room,uid,b,now,true);
+    if(b.action!=='poll'){hostSave();hostBroadcast()}
+    return Engine.viewOf(room,uid,now);
+  }
+  return remote(b);
 }
 const err=t=>{const e=$('#err');if(e)e.textContent=t||''};
 
@@ -111,21 +192,20 @@ function landing(){
   $('#ob').hidden=true;
   m.className='';clearInterval(timer);
   m.innerHTML=`<h1>One Night Werewolf</h1><p class="mute">Everyone gets a secret role. One night, one vote.</p>
-  <div class="panel"><h2>Host a game</h2><p class="mute">You run the game on a shared screen. You don't get a card.</p>
+  <div class="panel"><h2>Host a game</h2><p class="mute">Your device runs the game, so keep this page open while everyone plays. You can join as a player too.</p>
   <button class="primary" id="mk">Create a room</button></div>
   <div class="panel"><h2>Join a game</h2><label>Your name<input id="nm" maxlength="14" autocomplete="nickname"></label>
   <label>Room code<input id="rc" maxlength="4" style="text-transform:uppercase" autocomplete="off"></label><button class="primary" id="jn">Join</button></div><p id="err" class="mute"></p>`;
   $('#nm').value=load('wwName')||'';
   $('#rc').value=(new URLSearchParams(location.search).get('room')||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
-  $('#mk').onclick=async()=>{try{const j=await api('POST',{action:'create'});ROOM=j.room;store('wwHost_'+ROOM,'1');wasPlayer=false;enter(true)}catch(e){err(e.message)}};
+  $('#mk').onclick=async()=>{try{err('Creating room…');const code=await createRoom();ROOM=code;store('wwHost_'+code,'1');store('wwHostDev_'+code,'1');unstore('wwPlayer_'+code);wasPlayer=false;enter(true)}catch(e){err(e.message)}};
   $('#jn').onclick=async()=>{
     name=$('#nm').value.trim();ROOM=$('#rc').value.trim().toUpperCase();
     if(!name||ROOM.length!==4)return err('Enter your name and the 4-letter room code.');
-    store('wwName',name);try{await api('POST',{action:'join',name});enter(false)}catch(e){err(e.message)}};
+    store('wwName',name);try{err('Connecting…');await connectHost(ROOM);await api('POST',{action:'join',name});enter(false)}catch(e){err(e.message)}};
 }
-const unstore=k=>{try{localStorage.removeItem(k)}catch(e){}};
 function swapBtn(){
-  const b=$('#ob');b.hidden=false;b.textContent=isHost?(wasPlayer?'👤 My player view':'👤 Play too'):'🎛️ Operator page';
+  const b=$('#ob');b.hidden=!room;b.textContent=isHost?(wasPlayer?'👤 My player view':'👤 Play too'):'🎛️ Operator page';
   b.onclick=()=>{
     if(isHost&&!wasPlayer){$('#nn').value=load('wwName')||'';$('#ne').textContent='';$('#nd').showModal();$('#nn').focus()}
     else if(isHost){unstore('wwHost_'+ROOM);enter(false)}
@@ -144,7 +224,7 @@ function enter(host){
 }
 async function poll(){
   try{const j=await api('GET');skew=j.now-Date.now();V=j;err('');render()}
-  catch(e){if(/not found/i.test(e.message)){alert('This room has expired or does not exist.');location.href='/'}else err('⚠️ '+e.message)}
+  catch(e){if(/not found/i.test(e.message)){alert('This room has expired or does not exist.');location.href=location.pathname}else if(!room&&/not in this game/i.test(e.message)&&name){api('POST',{action:'join',name}).catch(()=>{})}else err('⚠️ '+e.message)}
 }
 function tick(){
   const el=$('#cd');if(!el||!V)return;
@@ -154,10 +234,11 @@ function tick(){
   if(!end){el.textContent='';return}
   const s=Math.max(0,Math.round((end-(Date.now()+skew))/1000));el.textContent=`${s/60|0}:${String(s%60).padStart(2,'0')}`;
 }
-const phaseText=()=>({lobby:'Waiting for the host to start',countdown:'Get ready…',deal:'Look at your card',night:'Night',day:'Day: talk about the night!',vote:'Vote!',end:'Results'}[V.phase]);
+const phaseText=()=>{const r=multi()&&V.phase!=='lobby'&&V.phase!=='end'&&V.phase!=='countdown'?' '+V.round:'';return {lobby:'Waiting for the host to start',countdown:'Get ready…',deal:'Look at your card'+(r?' (round'+r+')':''),night:'Night'+r,day:'Day'+r+': talk about the night!',vote:'Vote!',end:'Results'}[V.phase]};
 const logHtml=()=>{
-  const priv=(V.me&&V.me.orig?[`Your starting role: ${V.me.orig}. ${ROLES[V.me.orig][1]}`,...V.me.priv]:[]).map(t=>`<div class="priv">${esc(t)}</div>`);
-  return priv.join('')+V.chat.map(c=>`<div><b>${esc(c.from)}:</b> ${esc(c.text)}</div>`).join('');
+  const priv=(V.me&&V.me.orig?[`${multi()?'Your card at the start of the night':'Your starting role'}: ${V.me.orig}. ${desc(V.me.orig)}`,...V.me.priv]:[]).map(t=>`<div class="priv">${esc(t)}</div>`);
+  const news=(V.news||[]).map(t=>`<div class="news">${esc(t)}</div>`);
+  return news.join('')+priv.join('')+V.chat.map(c=>`<div><b>${esc(c.from)}:</b> ${esc(c.text)}</div>`).join('');
 };
 function post(body){return api('POST',body).then(j=>{Object.assign(V,j);render()}).catch(e=>err('⚠️ '+e.message))}
 
@@ -199,7 +280,8 @@ try{if(localStorage.getItem('wwSound')==='1')addEventListener('pointerdown',()=>
 /* ---------- ROUND TABLE ---------- */
 function knownMap(){
   if(V.phase==='end'&&V.result){const k={};V.result.rows.forEach((r,i)=>k['p'+i]=r.role);V.result.center.forEach((c,i)=>k['c'+i]=c);return k}
-  return V.phase==='night'&&V.me&&V.me.awake?V.me.seen||{}:{};
+  const k=V.phase==='night'&&V.me&&V.me.awake?{...(V.me.seen||{})}:{};
+  V.players.forEach((p,i)=>{if(p.dead&&p.role)k['p'+i]=p.role});return k;
 }
 function tableHtml(click){
   const N=V.players.length,seat=V.me?V.me.seat:0,cards=V.phase!=='lobby',known=knownMap(),ph=V.phase;
@@ -207,7 +289,7 @@ function tableHtml(click){
   let h='<div class="disc"></div>';
   V.players.forEach((p,k)=>{
     const phi=360*(((k-seat)%N+N)%N)/N,a=phi*Math.PI/180,sn=Math.sin(a),cs=Math.cos(a),P=r=>`left:${(50-r*sn).toFixed(2)}%;top:${(50+r*cs).toFixed(2)}%`;
-    const col=COLORS[k%COLORS.length],key='p'+k,mine=!!V.me&&k===V.me.seat,dead=ph==='end'&&V.result&&V.result.rows[k].dead;
+    const col=COLORS[k%COLORS.length],key='p'+k,mine=!!V.me&&k===V.me.seat,dead=p.dead||(ph==='end'&&V.result&&V.result.rows[k].dead);
     h+=`<div class="pawn" style="${P(40)};--rot:${phi}deg;--col:${col}"><img src="assets/Player.png" alt="" ${NOERR}><span class="fb"></span></div>`;
     if(cards)h+=tc(key,known[key]?face(known[key]):back(),`${P(24)};--rot:${phi}deg`,`${click&&!mine?'ck':''} ${sel.includes(key)?'sel':''} ${dead?'dead':''}`);
     const lx=Math.min(91,Math.max(9,50-40*sn)),ly=Math.min(97,50+40*cs+6.8),bd=(ph==='deal'&&p.ready)||(ph==='vote'&&p.voted)?' <span class="bd">✓</span>':dead?' 💀':'';
@@ -222,24 +304,38 @@ function buildHost(){
   m.className='wide';
   m.innerHTML=`<h1>One Night Werewolf</h1><div class="panel" id="h"></div><p id="err" class="mute"></p>`;
 }
+const CNT={Mason:2,Villager:3},TOGS={classic:['Doppelganger','Minion','Mason','Seer','Robber','Troublemaker','Drunk','Insomniac','Hunter','Tanner','Villager'],multi:['Doppelganger','Mason','Seer','Detective','Robber','Troublemaker','Drunk','Doctor','Angel','Hunter','Villager']};
+const MODEINFO={classic:{name:'One Night Werewolf',min:3,fixed:2,fixedTxt:'Werewolf ×2 is always in.',info:'One night, one vote.'},multi:{name:'Werewolf × Mafia',min:5,fixed:4,fixedTxt:'Werewolf ×2 and Mafia ×2 are always in.',info:'Several nights. Last team standing wins: Village, Werewolves or Mafia.'}};
+const modeKey=()=>V.mode==='multi'?'multi':'classic';
+const availCards=()=>TOGS[modeKey()].filter(r=>!(V.off||[]).includes(r)).reduce((a,r)=>a+(CNT[r]||1),0);
+const needCards=n=>Math.max(n,MODEINFO[modeKey()].min)+3-MODEINFO[modeKey()].fixed;
+const cardsOk=n=>availCards()>=needCards(n);
+function cardsPanel(n){
+  const off=V.off||[],mi=MODEINFO[modeKey()],m=Math.max(n,mi.min),av=availCards(),ok=cardsOk(n),need=needCards(n);
+  return `<h2>Game mode</h2><div class="chips">${Object.keys(MODEINFO).map(k=>`<button class="opt" data-mode="${k}" aria-pressed="${k===modeKey()}">${MODEINFO[k].name}</button>`).join('')}</div><p class="mute sub">${mi.info} ${mi.min} to 13 players.</p>
+  <h2>Cards in play</h2><p class="mute sub">${mi.fixedTxt} Tap a card to include or exclude it.</p><div class="chips">${TOGS[modeKey()].map(r=>`<button class="opt" data-role="${r}" aria-pressed="${!off.includes(r)}">${ROLES[r][0]} ${r}${CNT[r]?' ×'+CNT[r]:''}</button>`).join('')}</div><p class="sub ${ok?'mute':''}" ${ok?'':'style="color:#ff7a82"'}>${ok?`${av} optional cards enabled, ${need} needed for ${m} players. Extra cards are left out at random.`:`Not enough cards: ${m} players need ${need} optional cards but only ${av} are enabled.`}</p>`;
+}
 function renderHost(){
-  const s=JSON.stringify([V.phase,V.step,V.players,V.chat,V.result,dur]);if(s===sig)return;sig=s;
-  const link=location.origin+'/?room='+ROOM, n=V.players.length, hum=n;
+  const s=JSON.stringify([V.phase,V.step,V.players,V.chat,V.result,dur,V.off,V.mode,V.news,V.round]);if(s===sig)return;sig=s;
+  const link=location.origin+location.pathname+'?room='+ROOM, n=V.players.length, hum=n;
   let h='';
   if(V.phase==='lobby'||V.phase==='end'){
-    if(V.phase==='end')h+=`<h2>Results</h2><p>${esc(V.result.text)}</p><div class="table">${tableHtml(false)}</div><div class="grid">${V.result.rows.map(r=>`<div class="row ${r.dead?'dead':''}"><b>${esc(r.name)}</b>: ${ROLES[r.orig][0]} ${r.orig} → ${ROLES[r.role][0]} ${r.role}<br><span class="mute">${r.votes} votes · voted ${esc(r.voted)}</span></div>`).join('')}<div class="row"><b>Center</b>: ${V.result.center.map(c=>ROLES[c][0]+' '+c).join(', ')}</div></div><hr style="border-color:#2c3260;margin:16px 0">`;
+    if(V.phase==='end')h+=`<h2>Results</h2><p>${esc(V.result.text)}</p><div class="table">${tableHtml(false)}</div><div class="grid">${V.result.rows.map(r=>`<div class="row ${r.dead?'dead':''}"><b>${esc(r.name)}</b>: ${ROLES[r.orig][0]} ${r.orig} → ${ROLES[r.role][0]} ${r.role}<br><span class="mute">${r.team?`${r.dead?'Dead':'Alive'} · ${r.team}`:`${r.votes} votes · voted ${esc(r.voted)}`}</span></div>`).join('')}<div class="row"><b>Center</b>: ${V.result.center.map(c=>ROLES[c][0]+' '+c).join(', ')}</div></div><hr style="border-color:#2c3260;margin:16px 0">`;
     h+=`<p class="mute">Room code</p><div class="code">${ROOM}</div><p>Friends open <b>${esc(link)}</b> and enter the code.</p>
     <h2>Players (${hum}/13)</h2>${V.phase==='lobby'&&n?`<div class="table">${tableHtml(false)}</div>`:''}<div class="chips">${V.players.map(p=>`<span>${esc(p.name)}</span>`).join('')||'<span class="mute">Waiting for players…</span>'}</div>
-    <p>Discussion time <select id="d">${[3,5,8,10].map(x=>`<option value="${x}" ${x===dur?'selected':''}>${x} min</option>`).join('')}</select></p>
-    <button class="primary" id="go" ${hum<3?'disabled':''}>${V.phase==='end'?'Play again':'Start game'}${hum<3?` (need ${3-hum} more)`:''}</button><p class="mute">3 to 13 players. A countdown runs before the cards are dealt.</p>`;
+    ${cardsPanel(n)}<p>Discussion time <select id="d">${[3,5,8,10].map(x=>`<option value="${x}" ${x===dur?'selected':''}>${x} min</option>`).join('')}</select></p>
+    <button class="primary" id="go" ${hum<MODEINFO[modeKey()].min||!cardsOk(n)?'disabled':''}>${V.phase==='end'?'Play again':'Start game'}${hum<MODEINFO[modeKey()].min?` (need ${MODEINFO[modeKey()].min-hum} more)`:''}</button>${V.phase==='end'?' <button id="bl">Back to lobby</button>':''}<p class="mute">A countdown runs before the cards are dealt.</p>`;
   }else{
     const c=V.phase==='countdown'?'Everyone get ready. Cards are dealt when the countdown ends.':V.phase==='deal'?`${V.players.filter(p=>p.ready).length}/${n} players have hidden their card.`:V.phase==='vote'?`${V.players.filter(p=>p.voted).length}/${n} votes in.`:V.phase==='night'?'Everyone keeps their eyes closed unless woken.':'';
     h+=`<h2>${esc(phaseText())}</h2><div class="big" id="cd"></div><p class="mute">${c}</p><div class="table">${tableHtml(false)}</div>`;
-    if(V.phase==='day'||V.phase==='vote')h+=`<div class="log">${V.chat.map(x=>`<div><b>${esc(x.from)}:</b> ${esc(x.text)}</div>`).join('')||'<span class="mute">No messages yet.</span>'}</div>`;
+    if(V.phase==='day'||V.phase==='vote')h+=`<div class="log">${(V.news||[]).map(t=>`<div class="news">${esc(t)}</div>`).join('')}${V.chat.map(x=>`<div><b>${esc(x.from)}:</b> ${esc(x.text)}</div>`).join('')||'<span class="mute">No messages yet.</span>'}</div>`;
     if(V.phase==='day')h+=`<button class="primary" id="sk">Start the vote now</button>`;
   }
   $('#h').innerHTML=h;
   if($('#d'))$('#d').onchange=e=>{dur=+e.target.value;sig=''};
+  $('#h').querySelectorAll('[data-role]').forEach(b=>b.onclick=()=>{const r=b.dataset.role,off=V.off||[];post({action:'config',off:off.includes(r)?off.filter(x=>x!==r):[...off,r]})});
+  $('#h').querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>post({action:'config',mode:b.dataset.mode,off:V.off||[]}));
+  if($('#bl'))$('#bl').onclick=()=>post({action:'lobby'});
   if($('#go'))$('#go').onclick=()=>post({action:'start',dur});
   if($('#sk'))$('#sk').onclick=()=>post({action:'skip'});
 }
@@ -254,6 +350,7 @@ function buildPlayer(){
 }
 function mode(){
   if(!V.me)return null;
+  if(V.me.dead)return null;
   if(V.phase==='vote'&&!V.me.voted)return{vote:1};
   if(V.phase==='night'&&V.ask)return{role:V.ask.role};
   return null;
@@ -265,11 +362,13 @@ function valid(){
 function tap(k){
   const known=knownMap()[k];if(known)peek=known;
   const md=mode(),t=k[0];
-  if(md&&!(t==='p'&&+k.slice(1)===V.me.seat)){
-    const r=md.role,tog=(a,n)=>a.includes(k)?a.filter(x=>x!==k):[...a,k].slice(-n);
+  const dead=t==='p'&&V.players[+k.slice(1)].dead, self=t==='p'&&+k.slice(1)===V.me.seat;
+  if(md&&!(self&&md.role!=='Doctor')&&(md.role==='Angel'?(t==='p'&&dead):!dead)){
+    const r=md.role,mu=multi(),tog=(a,n)=>a.includes(k)?a.filter(x=>x!==k):[...a,k].slice(-n);
     if(md.vote){if(t==='p')sel=[k]}
+    else if(mu&&(r==='Werewolf'||r==='Mafia')){if(t==='p')sel=[k]}
     else if(r==='Werewolf'||r==='Mason'||r==='Drunk'){if(t==='c')sel=[k]}
-    else if(r==='Robber'||r==='Doppelganger'){if(t==='p')sel=[k]}
+    else if(r==='Robber'||r==='Doppelganger'||r==='Detective'||r==='Doctor'||r==='Angel'){if(t==='p')sel=[k]}
     else if(r==='Troublemaker'){if(t==='p')sel=tog(sel,2)}
     else if(r==='Seer'){if(t==='p')sel=[k];else sel=tog(sel.filter(x=>x[0]==='c'),2)}
   }
@@ -280,23 +379,25 @@ function renderPlayer(){
   const me=V.me,ph=V.phase,sk=ph+V.step+(V.ask?1:0)+(me&&me.voted?1:0);
   if(sk!==selKey){selKey=sk;sel=[];peek=null}
   $('#phase').textContent=me||ph==='lobby'?phaseText():'This game already started';
-  const chatOn=!!me&&['day','vote','end'].includes(ph);
+  const chatOn=!!me&&['day','vote','end'].includes(ph)&&!(multi()&&me.dead&&ph!=='end');
   $('#ci').disabled=$('#cb').disabled=!chatOn;$('#ci').placeholder=chatOn?'Say what you did or saw…':'Chat opens in the morning';
-  const ls=JSON.stringify([me&&me.priv,V.chat,me&&me.orig]);if(ls!==logSig){logSig=ls;const l=$('#log');l.innerHTML=logHtml();l.scrollTop=1e9}
-  const s=JSON.stringify([ph,V.step,me,V.ask,V.players,sel,peek,V.result&&1]);if(s===sig)return;sig=s;
+  const ls=JSON.stringify([me&&me.priv,V.chat,me&&me.orig,V.news]);if(ls!==logSig){logSig=ls;const l=$('#log');l.innerHTML=logHtml();l.scrollTop=1e9}
+  const s=JSON.stringify([ph,V.step,me,V.ask,V.players,sel,peek,V.result&&1,V.off]);if(s===sig)return;sig=s;
   $('#tbl').innerHTML=tableHtml(true);
   let h='';const md=mode();
   if(!me&&ph!=='lobby')h='<p class="mute">Wait for the host to start the next game.</p>';
-  else if(ph==='lobby')h=`<p class="mute">Players: ${V.players.map(p=>esc(p.name)).join(', ')||'none yet'}</p>`;
+  else if(ph==='lobby')h=`<p class="mute">Players: ${V.players.map(p=>esc(p.name)).join(', ')||'none yet'}</p>${(V.off||[]).length?`<p class="mute sub">Not in this game: ${V.off.join(', ')}</p>`:''}`;
   else if(ph==='countdown')h='<p class="mute">Get ready. Your card is dealt when the countdown ends.</p>';
-  else if(ph==='deal')h=!me.orig?'<p class="mute">Round starting…</p>':me.ready?'<p class="mute">Card hidden. Waiting for the others…</p>':`<div class="bigc">${face(me.orig)}</div><p><b>${me.orig}</b><br>${esc(ROLES[me.orig][1])}</p><button class="primary" id="hide">Hide my card</button>`;
-  else if(ph==='night'&&V.ask)h=`<h2>${V.ask.role}</h2><p class="mute">${HELP[V.ask.role]}</p><p>Selected: <b>${selText()}</b></p><button class="primary" id="ok" ${valid()?'':'disabled'}>Confirm</button>${SKIP[V.ask.role]?'<button id="skip">Do nothing</button>':''}`;
+  else if(ph==='deal')h=!me.orig?'<p class="mute">Round starting…</p>':me.ready?'<p class="mute">Card hidden. Waiting for the others…</p>':`<div class="bigc">${face(me.orig)}</div><p><b>${me.orig}</b><br>${esc(desc(me.orig))}</p><button class="primary" id="hide">Hide my card</button>`;
+  else if(ph==='night'&&V.ask)h=`<h2>${V.ask.role}</h2><p class="mute">${HELP(V.ask.role)}</p><p>Selected: <b>${selText()}</b></p><button class="primary" id="ok" ${valid()?'':'disabled'}>Confirm</button>${SKIP[V.ask.role]?'<button id="skip">Do nothing</button>':''}`;
   else if(ph==='night')h=me.awake?'<p>You are awake. Look at the table.</p>':'<p class="mute">Eyes closed. Wait for morning.</p>';
+  else if(me&&me.dead&&ph!=='end'&&ph!=='lobby'&&ph!=='countdown')h='<p class="mute">You are dead. Watch the game from the table. The living will decide the rest.</p>';
   else if(ph==='day')h='<p class="mute">Talk it out in the chat. Tap a face-up card to look closer.</p>';
   else if(ph==='vote')h=me.voted?'<p class="mute">Vote cast. Waiting for the others…</p>':`<h2>Who do you vote to kill?</h2><p class="mute">Tap a player's card on the table.</p><p>Selected: <b>${selText()}</b></p><button class="primary" id="ok" ${valid()?'':'disabled'}>Cast vote</button>`;
-  else if(ph==='end'){const r=V.result;h=`${me.orig?`<div class="big">${me.win?'You win':'You lose'}</div>`:'<p>You joined after the round. You\'ll get a card in the next one.</p>'}<p>${esc(r.text)}</p><div class="grid">${r.rows.map(x=>`<div class="row ${x.dead?'dead':''}"><b>${esc(x.name)}</b>: ${ROLES[x.orig][0]} ${x.orig} → ${ROLES[x.role][0]} ${x.role}<br><span class="mute">${x.votes} votes · voted ${esc(x.voted)}</span></div>`).join('')}<div class="row"><b>Center</b>: ${r.center.map(c=>ROLES[c][0]+' '+c).join(', ')}</div></div><p class="mute">The host can start another round.</p>`}
+  else if(ph==='end'){const r=V.result;h=`${me.orig?`<div class="big">${me.win?'You win':'You lose'}</div>`:'<p>You joined after the round. You\'ll get a card in the next one.</p>'}<p>${esc(r.text)}</p><div class="grid">${r.rows.map(x=>`<div class="row ${x.dead?'dead':''}"><b>${esc(x.name)}</b>: ${ROLES[x.orig][0]} ${x.orig} → ${ROLES[x.role][0]} ${x.role}<br><span class="mute">${x.team?`${x.dead?'Dead':'Alive'} · ${x.team}`:`${x.votes} votes · voted ${esc(x.voted)}`}</span></div>`).join('')}<div class="row"><b>Center</b>: ${r.center.map(c=>ROLES[c][0]+' '+c).join(', ')}</div></div><button id="bl">Back to lobby</button><p class="mute">The host can start another round.</p>`}
   if(peek&&ph!=='deal')h+=`<div class="peek"><div class="bigc" style="--w:110px">${face(peek)}</div><p class="sub"><b>${peek}</b></p></div>`;
   $('#act').innerHTML=h;
+  if($('#bl'))$('#bl').onclick=()=>post({action:'lobby'});
   if($('#hide'))$('#hide').onclick=()=>post({action:'ready'});
   if($('#ok'))$('#ok').onclick=()=>{const s=sel;sel=[];md.vote?post({action:'vote',a:+s[0].slice(1)}):post({action:'act',sel:s})};
   if($('#skip'))$('#skip').onclick=()=>{sel=[];post({action:'act',sel:[]})};
@@ -308,11 +409,19 @@ function render(){
 }
 
 /* auto-reconnect after a refresh */
-(function(){
+(async function(){
   const q=(new URLSearchParams(location.search).get('room')||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
-  if(q.length===4){const sv=load('wwHost_'+q);if(sv!==null){ROOM=q;wasPlayer=load('wwPlayer_'+q)==='1';return enter(true)}
-    const nm=load('wwName');if(nm){ROOM=q;name=nm;
-      return api('POST',{action:'join',name:nm}).then(()=>enter(false)).catch(()=>{ROOM='';landing()})}}
+  if(q.length===4){
+    const saved=load('wwRoom_'+q);
+    if(load('wwHostDev_'+q)!==null&&saved){      // this device created the room: bring the game back from its saved state
+      try{ROOM=q;wasPlayer=load('wwPlayer_'+q)==='1';await restoreHost(q,JSON.parse(saved));return enter(load('wwHost_'+q)!==null)}
+      catch(e){ROOM='';room=null;landing();return err(e.message)}
+    }
+    const nm=load('wwName');
+    if(nm){ROOM=q;name=nm;
+      try{await connectHost(q);await api('POST',{action:'join',name:nm});return enter(false)}
+      catch(e){ROOM='';landing();return err(e.message)}}
+  }
   landing();
 })();
 </script>
